@@ -3,8 +3,9 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
-  image?: string;
-  newsArticles?: NewsArticle[]; // Added to support showing news cards in chat
+  image?: string; // The active Blob URL (changes every session)
+  imageId?: string; // The permanent ID in IndexedDB
+  newsArticles?: NewsArticle[];
 }
 
 export interface ChatSession {
@@ -17,7 +18,7 @@ export interface ChatSession {
 
 export interface ImageHistoryItem {
   id: string;
-  url: string;
+  url: string; // The active Blob URL
   prompt: string;
   createdAt: number;
 }
@@ -30,9 +31,7 @@ export interface AppSettings {
   themeId: 'romantic' | 'ocean' | 'nature' | 'sunset' | 'midnight';
   fontFamily: 'Quicksand' | 'Inter' | 'Playfair Display' | 'Fira Code';
   newsRefreshInterval: number; // in minutes
-  // Manual API Key Overrides
   keyOpenRouter?: string;
-  // keyGNews removed as it is now hardcoded/auto-configured
 }
 
 export interface NewsArticle {
@@ -44,11 +43,11 @@ export interface NewsArticle {
   publishedAt: string;
 }
 
-export type PageView = 'chat' | 'gallery' | 'news';
+export type PageView = 'chat' | 'gallery' | 'news' | 'about';
 
 export type UserIntention = 'chat' | 'generate_image' | 'fetch_news';
 
 export interface IntentionResponse {
   type: UserIntention;
-  query: string; // Refined prompt for the specific action
+  query: string;
 }

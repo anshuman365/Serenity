@@ -3,7 +3,8 @@ import {
   Send, Menu, Settings, Plus, MessageSquare, 
   Image as ImageIcon, Newspaper, Sparkles, Bot, 
   ChevronLeft, User, Sun, Moon,
-  RefreshCw, ExternalLink, Download
+  RefreshCw, ExternalLink, Download, Info, Heart, Globe, Github,
+  Zap, Camera, Feather, Smile
 } from 'lucide-react';
 import { generateOpenRouterResponse, classifyUserIntention, summarizeNewsForChat, generateChatTitle } from './services/openRouterService';
 import { generateImageHF } from './services/imageService';
@@ -96,7 +97,7 @@ const App: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
-  // Changed: Load image history from IndexedDB, not LocalStorage
+  // Load image history from IndexedDB
   const [imageHistory, setImageHistory] = useState<ImageHistoryItem[]>([]);
 
   const [cachedNews, setCachedNews] = useState<NewsArticle[]>(() => {
@@ -109,6 +110,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const theme = THEMES[settings.themeId] || THEMES.romantic;
 
   useEffect(() => {
@@ -123,15 +125,57 @@ const App: React.FC = () => {
     localStorage.setItem('serenity_settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Load images from IndexedDB on mount
+  // IMAGE HYDRATION: Fix broken images in chat on reload
   useEffect(() => {
-    getAllImagesFromDb().then(items => setImageHistory(items));
-    requestStoragePermission(); // Request persistent storage
-  }, []);
+    const hydrateImages = async () => {
+      // 1. Get fresh URLs from DB
+      const dbImages = await getAllImagesFromDb();
+      setImageHistory(dbImages);
+
+      // 2. Check if chats need updating
+      let chatsChanged = false;
+      const updatedChats = chats.map(chat => {
+        let msgsChanged = false;
+        const newMsgs = chat.messages.map(msg => {
+          // If message has an imageId, try to find the fresh URL
+          if (msg.imageId) {
+            const freshImg = dbImages.find(img => img.id === msg.imageId);
+            if (freshImg && freshImg.url !== msg.image) {
+               msgsChanged = true;
+               return { ...msg, image: freshImg.url };
+            }
+          }
+          return msg;
+        });
+
+        if (msgsChanged) {
+          chatsChanged = true;
+          return { ...chat, messages: newMsgs };
+        }
+        return chat;
+      });
+
+      if (chatsChanged) {
+        console.log("Restored images in chat history");
+        setChats(updatedChats);
+      }
+    };
+
+    hydrateImages();
+    requestStoragePermission();
+  }, []); // Run once on mount
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chats, currentChatId, isTyping, activePage]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 128) + 'px';
+    }
+  }, [input]);
 
   // Dark Mode Logic
   useEffect(() => {
@@ -143,17 +187,17 @@ const App: React.FC = () => {
   }, [darkMode]);
 
   useEffect(() => {
-    // Attempt to fetch keys from backend on mount
     fetchBackendKeys();
-
-    // Initial fetch
     fetchLatestNews('lifestyle', false).then(setCachedNews);
     
-    // Notification logic
+    // NOTIFICATION SYSTEM
     if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
       Notification.requestPermission();
     }
+
+    // Run this interval even if in background
     const interval = setInterval(() => {
+      console.log("Checking for updates...");
       checkAndNotifyNews();
       fetchLatestNews('lifestyle', false).then(setCachedNews); 
     }, settings.newsRefreshInterval * 60 * 1000);
@@ -175,15 +219,16 @@ const App: React.FC = () => {
     setIsSidebarOpen(false);
   };
 
-  const handleSendMessage = async () => {
-    if (!input.trim()) return;
+  const handleSendMessage = async (textOverride?: string) => {
+    const textToSend = textOverride || input;
+    if (!textToSend.trim()) return;
     
     let activeChatId = currentChatId;
     let activeChats = [...chats];
     if (!activeChatId) {
       const newChat = {
         id: generateId(),
-        title: input.slice(0, 30) + '...',
+        title: textToSend.slice(0, 30) + '...',
         messages: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -194,39 +239,39 @@ const App: React.FC = () => {
       setCurrentChatId(activeChatId);
     }
 
-    const userMsg: Message = { id: generateId(), role: 'user', content: input, timestamp: Date.now() };
+    const userMsg: Message = { id: generateId(), role: 'user', content: textToSend, timestamp: Date.now() };
     
-    // Optimistic Update
     setChats(prev => prev.map(c => c.id === activeChatId ? {
       ...c, messages: [...c.messages, userMsg], updatedAt: Date.now()
     } : c));
     
     setInput('');
+    if(textareaRef.current) textareaRef.current.style.height = 'auto';
     setIsTyping(true);
 
     try {
-      // 1. Intention Classification
       const intention = await classifyUserIntention(userMsg.content);
       console.log("Intention:", intention);
 
       let botContent = "";
       let generatedImageUrl = undefined;
+      let generatedImageId = undefined; // ID for DB persistence
       let newsArticlesForChat: NewsArticle[] = [];
 
-      // 2. Routing
       if (intention.type === 'generate_image') {
         setLoadingAction('Generating Image...');
         const blob = await generateImageHF(intention.query);
         generatedImageUrl = URL.createObjectURL(blob);
+        generatedImageId = generateId();
         
         const newImgItem: ImageHistoryItem = {
-           id: generateId(),
+           id: generatedImageId,
            url: generatedImageUrl,
            prompt: intention.query,
            createdAt: Date.now()
         };
         
-        // Save to IndexedDB (Permanent Storage)
+        // Save to IndexedDB
         await saveImageToDb(newImgItem, blob);
         
         // Update State
@@ -237,11 +282,10 @@ const App: React.FC = () => {
         setLoadingAction('Fetching News...');
         const articles = await fetchLatestNews(intention.query || 'lifestyle', true);
         setCachedNews(articles);
-        newsArticlesForChat = articles; // Store articles to display in chat
+        newsArticlesForChat = articles;
         botContent = await summarizeNewsForChat(articles, userMsg.content, settings.systemPrompt);
         
       } else {
-        // Chat
         const currentChat = activeChats.find(c => c.id === activeChatId);
         const history = currentChat ? [...currentChat.messages, userMsg] : [userMsg];
         const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -262,6 +306,7 @@ const App: React.FC = () => {
         role: 'assistant',
         content: botContent,
         image: generatedImageUrl,
+        imageId: generatedImageId, // Important: Link to DB
         newsArticles: newsArticlesForChat.length > 0 ? newsArticlesForChat : undefined,
         timestamp: Date.now()
       };
@@ -270,7 +315,7 @@ const App: React.FC = () => {
         ...c, messages: [...c.messages, botMsg]
       } : c));
 
-      // --- AUTO RENAME LOGIC ---
+      // Auto-rename
       const chatContext = activeChats.find(c => c.id === activeChatId);
       const fullHistory = chatContext ? [...chatContext.messages, userMsg, botMsg] : [userMsg, botMsg];
 
@@ -308,32 +353,55 @@ const App: React.FC = () => {
 
   const renderChat = () => {
     const activeChat = chats.find(c => c.id === currentChatId);
+    
+    // Suggestion Chips Data
+    const suggestions = [
+      { icon: Zap, text: "Aaj ki taza khabar?" },
+      { icon: Camera, text: "Meri ek sundar photo banao" },
+      { icon: Feather, text: "Ek romantic shayari sunao" },
+      { icon: Smile, text: "Mood kharab hai, joke sunao" }
+    ];
+
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden safe-pb">
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
            {!activeChat && (
-             <div className="h-full flex flex-col items-center justify-center text-center opacity-60 p-4">
-               <div className={`w-24 h-24 bg-gradient-to-tr ${theme.gradient} rounded-full flex items-center justify-center mb-6 shadow-xl`}>
-                 <Bot size={48} className="text-white" />
+             <div className="h-full flex flex-col items-center justify-center text-center p-6 animate-fade-in-up">
+               <div className={`w-28 h-28 bg-gradient-to-tr ${theme.gradient} rounded-full flex items-center justify-center mb-6 shadow-2xl ring-4 ring-white dark:ring-gray-800`}>
+                 <Bot size={56} className="text-white drop-shadow-md" />
                </div>
-               <h3 className="text-2xl font-bold dark:text-gray-200">Hi, {settings.partnerName}</h3>
-               <p className="dark:text-gray-400">Main {settings.userName} hoon.</p>
+               <h3 className="text-3xl font-bold dark:text-gray-100 mb-2">Hi, {settings.partnerName}</h3>
+               <p className="dark:text-gray-400 mb-8 max-w-xs mx-auto">Main {settings.userName} hoon. Aaj hum kya karein?</p>
+               
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md">
+                 {suggestions.map((s, idx) => (
+                   <button 
+                     key={idx}
+                     onClick={() => handleSendMessage(s.text)}
+                     className="flex items-center gap-3 p-4 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-sm hover:shadow-md hover:border-pink-300 dark:hover:border-pink-700 transition-all text-left group"
+                   >
+                     <div className={`p-2 rounded-lg bg-gray-50 dark:bg-gray-700 ${theme.primary} group-hover:scale-110 transition-transform`}>
+                        <s.icon size={18}/>
+                     </div>
+                     <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{s.text}</span>
+                   </button>
+                 ))}
+               </div>
              </div>
            )}
            {activeChat?.messages.map(msg => (
-             <div key={msg.id} className={`flex gap-3 md:gap-4 max-w-3xl mx-auto ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+             <div key={msg.id} className={`flex gap-3 md:gap-4 max-w-3xl mx-auto ${msg.role === 'user' ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-600 text-white' : `${theme.msgUser} text-white`}`}>
                  {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
                </div>
                <div className={`flex flex-col gap-2 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                 <div className={`px-4 py-3 md:px-5 md:py-3.5 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-700 text-white rounded-tr-sm' : `${theme.msgBot} border text-gray-700 dark:text-gray-200 rounded-tl-sm`}`}>
+                 <div className={`px-4 py-3 md:px-5 md:py-3.5 rounded-2xl shadow-sm text-sm whitespace-pre-wrap leading-relaxed ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-700 text-white rounded-tr-sm' : `${theme.msgBot} border text-gray-700 dark:text-gray-200 rounded-tl-sm`}`}>
                    {msg.content}
                  </div>
                  
-                 {/* Generated Image Display */}
                  {msg.image && (
                    <div className="relative group">
-                     <img src={msg.image} alt="Generated" className="rounded-xl shadow-lg border-4 border-white dark:border-gray-700 max-w-full" />
+                     <img src={msg.image} alt="Generated" className="rounded-xl shadow-lg border-4 border-white dark:border-gray-700 max-w-full bg-gray-200 dark:bg-gray-800 min-h-[200px]" />
                      <a 
                        href={msg.image} 
                        download={`serenity-${Date.now()}.png`}
@@ -344,7 +412,6 @@ const App: React.FC = () => {
                    </div>
                  )}
 
-                 {/* News Cards */}
                  {msg.newsArticles && msg.newsArticles.length > 0 && (
                    <div className="w-full flex gap-3 overflow-x-auto py-2 custom-scrollbar snap-x">
                      {msg.newsArticles.map((article, idx) => (
@@ -355,8 +422,9 @@ const App: React.FC = () => {
                          rel="noreferrer"
                          className="flex-shrink-0 w-60 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden hover:shadow-md transition-all group snap-start"
                        >
-                         <div className="h-32 overflow-hidden">
+                         <div className="h-32 overflow-hidden relative">
                            <img src={article.image} alt={article.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                           <div className="absolute inset-0 bg-black/10 group-hover:bg-black/0 transition-colors"></div>
                          </div>
                          <div className="p-3">
                            <h4 className="text-xs font-bold text-gray-800 dark:text-gray-200 line-clamp-2 mb-1">{article.title}</h4>
@@ -370,31 +438,41 @@ const App: React.FC = () => {
                    </div>
                  )}
 
-                 <span className="text-[10px] text-gray-400">{new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                 <span className="text-[10px] text-gray-400 select-none">{new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                </div>
              </div>
            ))}
            {isTyping && (
-             <div className="flex gap-4 max-w-3xl mx-auto items-center">
-                <div className={`w-8 h-8 rounded-full ${theme.msgUser} flex items-center justify-center text-white`}><Bot size={14}/></div>
-                <div className="bg-white dark:bg-gray-800 px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-700 text-xs text-gray-500 flex items-center gap-2">
-                   {loadingAction && <span className="animate-pulse font-medium text-pink-500">{loadingAction}</span>}
-                   {!loadingAction && <span className="flex gap-1"><span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"/>...</span>}
+             <div className="flex gap-4 max-w-3xl mx-auto items-center animate-in fade-in duration-300">
+                <div className={`w-8 h-8 rounded-full ${theme.msgUser} flex items-center justify-center text-white animate-pulse`}>
+                  <Bot size={14}/>
+                </div>
+                <div className="bg-white dark:bg-gray-800 px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-700 text-xs text-gray-500 flex items-center gap-2 shadow-sm">
+                   {loadingAction ? (
+                     <span className="font-medium bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-purple-500 animate-pulse">{loadingAction}</span>
+                   ) : (
+                     <div className="flex gap-1.5 h-full items-center">
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"/>
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"/>
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"/>
+                     </div>
+                   )}
                 </div>
              </div>
            )}
-           <div ref={messagesEndRef} className="h-4"/>
+           <div ref={messagesEndRef} className="h-2"/>
         </div>
         <div className="p-3 md:p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-800 pb-safe">
-          <div className="max-w-3xl mx-auto flex items-center gap-2">
-            <input 
+          <div className="max-w-3xl mx-auto flex items-end gap-2">
+            <textarea 
+              ref={textareaRef}
               value={input} 
               onChange={e=>setInput(e.target.value)} 
-              onKeyDown={e=>e.key==='Enter' && handleSendMessage()}
               placeholder={`Message ${settings.userName}...`}
-              className="flex-1 bg-white dark:bg-gray-800 border-0 ring-1 ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-pink-400 rounded-2xl px-5 py-3 md:py-4 shadow-sm transition-all outline-none dark:text-white"
+              className="flex-1 bg-white dark:bg-gray-800 border-0 ring-1 ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-pink-400 rounded-2xl px-5 py-3 shadow-sm transition-all outline-none dark:text-white resize-none min-h-[48px] max-h-32 custom-scrollbar text-base"
+              rows={1}
             />
-            <button onClick={handleSendMessage} disabled={!input.trim() || isTyping} className={`p-3 md:p-4 rounded-xl shadow-lg transition-all transform hover:scale-105 active:scale-95 ${!input.trim() ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' : `${theme.buttonGradient} text-white`}`}>
+            <button onClick={() => handleSendMessage()} disabled={!input.trim() || isTyping} className={`p-3 md:p-3.5 rounded-xl shadow-lg transition-all transform hover:scale-105 active:scale-95 mb-1 ${!input.trim() ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' : `${theme.buttonGradient} text-white`}`}>
               <Send size={20}/>
             </button>
           </div>
@@ -404,7 +482,7 @@ const App: React.FC = () => {
   };
 
   const renderGallery = () => (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900 safe-pb">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900 safe-pb custom-scrollbar">
       <h2 className="text-2xl font-bold mb-6 flex items-center gap-2 dark:text-white"><ImageIcon className="text-pink-500"/> Image Memories</h2>
       {imageHistory.length === 0 ? (
         <div className="text-center py-20 text-gray-400">No images generated yet. Ask me to "draw something"!</div>
@@ -430,7 +508,7 @@ const App: React.FC = () => {
   );
 
   const renderNews = () => (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900 safe-pb">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900 safe-pb custom-scrollbar">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold flex items-center gap-2 dark:text-white"><Newspaper className="text-purple-500"/> Latest Updates</h2>
         <button 
@@ -445,7 +523,7 @@ const App: React.FC = () => {
           <div className="text-center py-20 text-gray-400">Loading or no news available...</div>
         ) : (
           cachedNews.map((n, i) => (
-            <div key={i} className="flex flex-col md:flex-row gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+            <div key={i} className="flex flex-col md:flex-row gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 hover:border-pink-200 transition-colors">
               <img src={n.image} alt={n.title} className="w-full md:w-48 h-32 object-cover rounded-lg"/>
               <div className="flex-1">
                 <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-2">{n.title}</h3>
@@ -462,14 +540,52 @@ const App: React.FC = () => {
     </div>
   );
 
+  const renderAbout = () => (
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900 safe-pb flex items-center justify-center custom-scrollbar">
+      <div className="max-w-2xl w-full bg-white dark:bg-gray-800 rounded-3xl p-8 shadow-xl border border-gray-100 dark:border-gray-700 relative overflow-hidden">
+        <div className={`absolute top-0 left-0 w-full h-32 bg-gradient-to-r ${theme.gradient} opacity-20`}></div>
+        <div className="relative z-10 flex flex-col items-center text-center">
+           <div className={`w-24 h-24 rounded-full bg-gradient-to-tr ${theme.gradient} flex items-center justify-center text-white mb-6 shadow-lg`}>
+              <Sparkles size={40}/>
+           </div>
+           <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">Serenity AI</h2>
+           <p className="text-gray-500 dark:text-gray-400 mb-8">Personalized AI Companion & Assistant</p>
+           
+           <div className="grid gap-4 w-full text-left mb-8">
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                 <h3 className="font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2"><User size={18} className="text-purple-500"/> Creator</h3>
+                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">Anshuman Singh</p>
+                 <p className="text-xs text-gray-400 mt-0.5">Physicist & Tech Innovator</p>
+              </div>
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                 <h3 className="font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2"><Heart size={18} className="text-pink-500"/> Mission</h3>
+                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">To bring emotional intelligence and utility together in a beautiful interface.</p>
+              </div>
+           </div>
+
+           <a 
+             href="https://anshuman365.github.io" 
+             target="_blank" 
+             rel="noreferrer"
+             className={`flex items-center gap-2 px-6 py-3 rounded-full ${theme.buttonGradient} text-white font-medium shadow-md hover:scale-105 transition-transform`}
+           >
+             <Globe size={18}/> Visit Website
+           </a>
+           <p className="text-xs text-gray-400 mt-6">anshuman365.github.io</p>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 transition-colors duration-300" style={{fontFamily: settings.fontFamily}}>
-      {/* Sidebar - Hidden on mobile by default */}
+      {/* Sidebar */}
       <aside className={`fixed md:static inset-y-0 z-30 w-72 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="flex flex-col h-full p-4 safe-pb">
           <div className="flex items-center justify-between mb-8 px-2 mt-2">
             <h1 className={`text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r ${theme.gradient} flex items-center gap-2`}>
-              <Sparkles className={theme.primary}/> Serenity
+              <div className={`p-1.5 rounded-lg ${theme.buttonGradient} text-white`}><Sparkles size={20}/></div>
+              Serenity
             </h1>
             <button onClick={()=>setIsSidebarOpen(false)} className="md:hidden text-gray-400 p-2"><ChevronLeft/></button>
           </div>
@@ -482,6 +598,9 @@ const App: React.FC = () => {
             </button>
             <button onClick={() => { setActivePage('news'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activePage === 'news' ? `${theme.bgSoft} ${theme.primary} font-medium` : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
               <Newspaper size={20}/> News Feed
+            </button>
+            <button onClick={() => { setActivePage('about'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activePage === 'about' ? `${theme.bgSoft} ${theme.primary} font-medium` : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+              <Info size={20}/> About
             </button>
           </nav>
           <button onClick={handleCreateNewChat} className={`w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 dark:border-gray-700 p-3 rounded-xl text-gray-500 hover:border-pink-400 hover:text-pink-500 transition-all mb-4`}>
@@ -519,11 +638,11 @@ const App: React.FC = () => {
          {activePage === 'chat' && renderChat()}
          {activePage === 'gallery' && renderGallery()}
          {activePage === 'news' && renderNews()}
+         {activePage === 'about' && renderAbout()}
       </div>
 
       <SettingsModal isOpen={showSettings} onClose={()=>setShowSettings(false)} settings={settings} onSave={setSettings}/>
       
-      {/* Mobile overlay for sidebar */}
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden backdrop-blur-sm" onClick={()=>setIsSidebarOpen(false)}/>}
     </div>
   );
