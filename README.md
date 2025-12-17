@@ -29,7 +29,7 @@ To fully utilize all features, you need to configure the following API keys in y
 
 | Variable Name | Service | Description |
 | :--- | :--- | :--- |
-| `OPENROUTER_API_KEY` | OpenRouter | **Required**. Used for the main chat functionality (access to GPT, Claude, Llama, etc.). |
+| `OPENROUTER_API` | OpenRouter | **Required**. Used for the main chat functionality (access to GPT, Claude, Llama, etc.). |
 | `GEMINI_API_KEY` | Google Gemini | **Optional**. Used as a fallback chat engine if OpenRouter is unavailable. |
 | `HUGGINGFACE_API_KEY` | Hugging Face | **Required**. Used for generating images via the FLUX.1-dev model. |
 | `GNEWS_API_KEY` | GNews | **Required**. Used to fetch the latest lifestyle and technology news. |
@@ -37,7 +37,7 @@ To fully utilize all features, you need to configure the following API keys in y
 ### Example `.env` file
 
 ```env
-OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_API=sk-or-v1-...
 GEMINI_API_KEY=AIzaSy...
 HUGGINGFACE_API_KEY=hf_...
 GNEWS_API_KEY=...
