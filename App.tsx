@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, Newspaper, Sparkles, Bot, 
   ChevronLeft, User, Sun, Moon,
   RefreshCw, ExternalLink, Download, Info, Heart, Globe, Github,
-  Zap, Camera, Feather, Smile
+  Zap, Camera, Feather, Smile, Trash2
 } from 'lucide-react';
 import { generateOpenRouterResponse, classifyUserIntention, summarizeNewsForChat, generateChatTitle } from './services/openRouterService';
 import { generateImageHF } from './services/imageService';
@@ -78,7 +78,15 @@ const THEMES = {
 
 const App: React.FC = () => {
   const [activePage, setActivePage] = useState<PageView>('chat');
-  const [darkMode, setDarkMode] = useState(false);
+  
+  // Changed: Default to true (Dark mode enabled by default)
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('serenity_theme_mode');
+      return saved ? JSON.parse(saved) : true;
+    } catch { return true; }
+  });
+
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('serenity_settings');
@@ -184,6 +192,7 @@ const App: React.FC = () => {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    localStorage.setItem('serenity_theme_mode', JSON.stringify(darkMode));
   }, [darkMode]);
 
   useEffect(() => {
@@ -217,6 +226,24 @@ const App: React.FC = () => {
     setCurrentChatId(newChat.id);
     setActivePage('chat');
     setIsSidebarOpen(false);
+  };
+
+  const handleDeleteChat = (e: React.MouseEvent, chatIdToDelete: string) => {
+    e.stopPropagation(); // Prevent clicking the chat item itself
+    
+    if (window.confirm("Are you sure you want to delete this conversation?")) {
+      const updatedChats = chats.filter(c => c.id !== chatIdToDelete);
+      setChats(updatedChats);
+      
+      // If we deleted the currently active chat, switch to another one
+      if (currentChatId === chatIdToDelete) {
+        if (updatedChats.length > 0) {
+          setCurrentChatId(updatedChats[0].id);
+        } else {
+          setCurrentChatId(null);
+        }
+      }
+    }
   };
 
   const handleSendMessage = async (textOverride?: string) => {
@@ -608,8 +635,19 @@ const App: React.FC = () => {
           </button>
           <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
             {chats.map(c => (
-              <div key={c.id} onClick={()=>{setCurrentChatId(c.id); setActivePage('chat'); setIsSidebarOpen(false);}} className={`p-2 rounded-lg cursor-pointer text-sm truncate transition-colors ${currentChatId === c.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
-                {c.title}
+              <div 
+                key={c.id} 
+                onClick={()=>{setCurrentChatId(c.id); setActivePage('chat'); setIsSidebarOpen(false);}} 
+                className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer text-sm transition-colors ${currentChatId === c.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}
+              >
+                <span className="truncate flex-1 pr-2">{c.title}</span>
+                <button 
+                  onClick={(e) => handleDeleteChat(e, c.id)}
+                  className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-all"
+                  title="Delete Conversation"
+                >
+                  <Trash2 size={14}/>
+                </button>
               </div>
             ))}
           </div>
