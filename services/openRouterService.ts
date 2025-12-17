@@ -54,7 +54,7 @@ export const classifyUserIntention = async (userInput: string): Promise<Intentio
       headers: getHeaders(),
       body: JSON.stringify({
         model: "openai/gpt-3.5-turbo", 
-        max_tokens: 30, // Limit tokens to save credits and fix errors
+        max_tokens: 64, // Limit tokens to save credits and fix errors
         messages: [
           { role: "system", content: systemInstruction },
           { role: "user", content: userInput }
@@ -112,7 +112,7 @@ export const generateOpenRouterResponse = async (
       headers: getHeaders(),
       body: JSON.stringify({
         model: MODEL, 
-        max_tokens: 1000, // CRITICAL FIX: Limit output tokens to fit within credit limits
+        max_tokens: 550, // CRITICAL FIX: Limit output tokens to fit within credit limits
         messages: [
           { role: "system", content: finalSystemPrompt },
           ...history.map(msg => ({
