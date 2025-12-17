@@ -112,7 +112,7 @@ export const generateOpenRouterResponse = async (
       headers: getHeaders(),
       body: JSON.stringify({
         model: MODEL, 
-        max_tokens: 250, // CRITICAL FIX: Limit output tokens to fit within credit limits
+        max_tokens: 550, // CRITICAL FIX: Limit output tokens to fit within credit limits
         messages: [
           { role: "system", content: finalSystemPrompt },
           ...history.map(msg => ({
