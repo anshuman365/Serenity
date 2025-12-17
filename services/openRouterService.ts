@@ -1,5 +1,5 @@
 import { Message, IntentionResponse, NewsArticle } from '../types';
-import { CONFIG } from './config';
+import { CONFIG, fetchBackendKeys } from './config';
 
 const getHeaders = () => ({
   "Authorization": `Bearer ${CONFIG.OPENROUTER_API}`,
@@ -8,12 +8,28 @@ const getHeaders = () => ({
   "X-Title": "Serenity Personal AI",
 });
 
+// Creator Profile - Compressed to save tokens while keeping key details
+const CREATOR_PROFILE = `
+[SYSTEM_DATA: CREATOR_PROFILE]
+Name: Anshuman Singh
+Identity: Aspiring Physicist (Theoretical & Research) & Tech Innovator.
+Tech Stack: Expert in Python, SQL, Flask (Backend), APIs, Auth systems, & AI Integration (Image Gen, LLMs).
+Mindset: Logic-oriented, self-driven, practical. Blends theoretical science with real-world business (e.g., Industrial Bio-Energy models).
+Personality: Values knowledge over show-off. Direct, clarity-based communication (Hinglish).
+Role here: He is the creator/developer of this "Serenity AI" app.
+Instruction: If asked about the creator/developer or Anshuman, use this data. Otherwise, stay in your romantic persona.
+`;
+
 // 1. Classify User Intention
 export const classifyUserIntention = async (userInput: string): Promise<IntentionResponse> => {
-  // Fail fast if no key
+  // If key is missing, try fetching from backend first
+  if (!CONFIG.OPENROUTER_API) {
+    await fetchBackendKeys();
+  }
+
+  // Fail fast if still no key
   if (!CONFIG.OPENROUTER_API) {
     console.error("OpenRouter Key is missing in config");
-    // Default to chat if key is missing so we can show the error in the UI
     return { type: 'chat', query: userInput }; 
   }
 
@@ -22,8 +38,8 @@ export const classifyUserIntention = async (userInput: string): Promise<Intentio
     
     Categories:
     1. 'generate_image': User wants to create/draw/see an image.
-    2. 'fetch_news': User asks for news, headlines, updates.
-    3. 'chat': Normal conversation.
+    2. 'fetch_news': User asks for news, headlines, updates, current events.
+    3. 'chat': Normal conversation, advice, roleplay, or questions about the creator (Anshuman).
 
     Response Format (JSON ONLY):
     {
@@ -37,7 +53,8 @@ export const classifyUserIntention = async (userInput: string): Promise<Intentio
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({
-        model: "openai/gpt-3.5-turbo", // Lightweight model for classification
+        model: "openai/gpt-3.5-turbo", 
+        max_tokens: 64, // Limit tokens to save credits and fix errors
         messages: [
           { role: "system", content: systemInstruction },
           { role: "user", content: userInput }
@@ -53,12 +70,10 @@ export const classifyUserIntention = async (userInput: string): Promise<Intentio
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     
-    // Parse JSON safely
     try {
         const jsonStr = content.replace(/```json/g, '').replace(/```/g, '').trim();
         return JSON.parse(jsonStr);
     } catch (e) {
-        // Fallback if model didn't return valid JSON
         return { type: 'chat', query: userInput };
     }
   } catch (error) {
@@ -74,12 +89,22 @@ export const generateOpenRouterResponse = async (
 ): Promise<string> => {
   
   if (!CONFIG.OPENROUTER_API) {
-    throw new Error("API Key missing. Please add OPENROUTER_API in .env or Settings.");
+    await fetchBackendKeys();
+  }
+  
+  if (!CONFIG.OPENROUTER_API) {
+    throw new Error("API Key missing. I tried fetching it from the backend but failed. Please add it in Settings.");
   }
 
-  // Using a reliable model via OpenRouter (Gemini Flash via OpenRouter or GPT-3.5)
-  // Google models via OpenRouter are often free/cheap.
+  // Use a capable but fast model
   const MODEL = "google/gemini-2.0-flash-001"; 
+
+  // Merge the User's Persona settings with the Creator's Truth
+  const finalSystemPrompt = `
+    ${systemPrompt}
+    
+    ${CREATOR_PROFILE}
+  `;
 
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -87,8 +112,9 @@ export const generateOpenRouterResponse = async (
       headers: getHeaders(),
       body: JSON.stringify({
         model: MODEL, 
+        max_tokens: 1000, // CRITICAL FIX: Limit output tokens to fit within credit limits
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: finalSystemPrompt },
           ...history.map(msg => ({
             role: msg.role,
             content: msg.content
@@ -112,19 +138,78 @@ export const generateOpenRouterResponse = async (
 
 // 3. Summarize News
 export const summarizeNewsForChat = async (news: NewsArticle[], originalQuery: string, systemPersona: string): Promise<string> => {
-  if (!news.length) return "Baby, mujhe koi latest news nahi mili abhi.";
+  if (!news.length) return "Baby, I tried searching but couldn't find any specific news about that right now.";
 
-  const newsContext = news.map(n => `- ${n.title} (${n.source})`).join('\n');
+  // Prepare a richer context with descriptions
+  const newsContext = news.slice(0, 5).map(n => `
+    Title: ${n.title}
+    Source: ${n.source}
+    Snippet: ${n.description}
+    Date: ${n.publishedAt}
+  `).join('\n---\n');
   
   const prompt = `
+    Current Date: ${new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
     ${systemPersona}
     
-    Context: The user asked about "${originalQuery}".
-    I have fetched these headlines:
+    CONTEXT:
+    The user asked about: "${originalQuery}".
+    I have performed a Google News search and found the following articles:
+    
     ${newsContext}
 
-    Task: Summarize these updates for the user in your boyfriend persona (Hinglish).
+    TASK:
+    Read the snippets above and provide a concise, engaging summary for the user. 
+    Maintain your boyfriend persona (Hinglish). 
+    If the news is serious, be supportive. If it's light, be fun.
+    Don't just list them, weave them into a conversation.
+    Note the dates of the articles and mention if they are very recent.
   `;
 
   return generateOpenRouterResponse([], prompt);
+};
+
+// 4. Generate Chat Title
+export const generateChatTitle = async (history: Message[]): Promise<string> => {
+  if (!CONFIG.OPENROUTER_API) return "";
+
+  // Take the first few messages to establish context
+  const contextMessages = history.slice(0, 4).map(m => `${m.role}: ${m.content}`).join('\n');
+  
+  const systemInstruction = `
+    Analyze the following conversation snippet and create a very short, creative title (max 4 words).
+    It should capture the essence of the user's intent.
+    Examples: "Quantum Physics Basics", "Romantic Poem", "News about Tesla", "Image of a Cat".
+    Do NOT use quotation marks.
+    Do NOT use "Title:" prefix.
+    Return ONLY the title text.
+  `;
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        model: "openai/gpt-3.5-turbo", 
+        max_tokens: 15,
+        messages: [
+          { role: "system", content: systemInstruction },
+          { role: "user", content: contextMessages }
+        ]
+      })
+    });
+
+    if (!response.ok) return "";
+    
+    const data = await response.json();
+    let title = data.choices?.[0]?.message?.content?.trim();
+    if (title) {
+        title = title.replace(/^["']|["']$/g, ''); // remove quotes
+        return title;
+    }
+    return "";
+  } catch (error) {
+    console.warn("Title generation failed", error);
+    return "";
+  }
 };

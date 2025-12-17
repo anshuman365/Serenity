@@ -1,26 +1,23 @@
 import { AppSettings } from '../types';
 
+// Store backend key in memory
+let backendOpenRouterKey = '';
+
 // Helper to safely access environment variables
 const getEnv = (key: string): string => {
-  // 1. Try standard process.env (User specific request for Render)
-  // We check typeof process to avoid browser crashes if polyfills are missing
   if (typeof process !== 'undefined' && process.env) {
     if (process.env[key]) {
       return process.env[key] as string;
     }
   }
 
-  // 2. Try Vite specific (import.meta.env)
-  // This handles cases where the bundler exposes keys, even without VITE_ prefix if configured
   try {
     // @ts-ignore
     if (import.meta && import.meta.env && import.meta.env[key]) {
       // @ts-ignore
       return import.meta.env[key];
     }
-  } catch (e) {
-    // Ignore errors if import.meta is not defined
-  }
+  } catch (e) {}
 
   return '';
 };
@@ -38,15 +35,46 @@ const getSettingsKey = (keyName: keyof AppSettings): string => {
   return '';
 };
 
+export const fetchBackendKeys = async (): Promise<boolean> => {
+  try {
+    // Check if we already have it
+    if (backendOpenRouterKey) return true;
+
+    console.log('Fetching API key from backend...');
+    const backendUrl = 'https://nexoraindustries365.pythonanywhere.com';
+    
+    const response = await fetch(`${backendUrl}/api/config/openrouter-api-key`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    });
+
+    if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'success' && data.openrouter_api_key) {
+            backendOpenRouterKey = data.openrouter_api_key;
+            console.log('API key successfully retrieved from backend');
+            return true;
+        } else {
+            console.error('Backend returned error:', data.message);
+        }
+    } else {
+        console.error('Backend request failed:', response.status);
+    }
+  } catch (error) {
+    console.error('Error fetching API key from backend:', error);
+  }
+  return false;
+};
+
 export const CONFIG = {
   get OPENROUTER_API() {
-    // Checks OPENROUTER_API first, then OPENROUTER_API_KEY, then Manual Settings
-    return getEnv('OPENROUTER_API') || getEnv('OPENROUTER_API_KEY') || getSettingsKey('keyOpenRouter');
-  },
-  get HUGGINGFACE_API_KEY() {
-    return getEnv('HUGGINGFACE_API_KEY') || getSettingsKey('keyHuggingFace');
+    // Priority: Backend -> Env -> Manual Settings
+    return backendOpenRouterKey || getEnv('OPENROUTER_API') || getEnv('OPENROUTER_API_KEY') || getSettingsKey('keyOpenRouter');
   },
   get GNEWS_API_KEY() {
-    return getEnv('GNEWS_API_KEY') || getSettingsKey('keyGNews');
+    // Priority: Env -> Hardcoded Key provided by user
+    return getEnv('GNEWS_API_KEY') || '816096d818f28132af3e4cec69831bdb';
   }
 };

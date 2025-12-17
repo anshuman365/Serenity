@@ -3,11 +3,12 @@ import {
   Send, Menu, Settings, Plus, MessageSquare, 
   Image as ImageIcon, Newspaper, Sparkles, Bot, 
   ChevronLeft, User, Sun, Moon,
-  RefreshCw
+  RefreshCw, ExternalLink
 } from 'lucide-react';
-import { generateOpenRouterResponse, classifyUserIntention, summarizeNewsForChat } from './services/openRouterService';
+import { generateOpenRouterResponse, classifyUserIntention, summarizeNewsForChat, generateChatTitle } from './services/openRouterService';
 import { generateImageHF } from './services/imageService';
 import { fetchLatestNews, checkAndNotifyNews } from './services/newsService';
+import { fetchBackendKeys } from './services/config';
 import SettingsModal from './components/SettingsModal';
 import { ChatSession, Message, AppSettings, PageView, ImageHistoryItem, NewsArticle } from './types';
 
@@ -24,7 +25,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   newsRefreshInterval: 20
 };
 
-// Theme configurations (kept same as before)
+// Theme configurations
 const THEMES = {
   romantic: {
     gradient: 'from-pink-500 to-purple-600',
@@ -101,7 +102,12 @@ const App: React.FC = () => {
     } catch { return []; }
   });
 
-  const [cachedNews, setCachedNews] = useState<NewsArticle[]>([]);
+  const [cachedNews, setCachedNews] = useState<NewsArticle[]>(() => {
+    try {
+      const saved = localStorage.getItem('serenity_news_cache');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -128,12 +134,19 @@ const App: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chats, currentChatId, isTyping, activePage]);
 
+  // Dark Mode Logic
   useEffect(() => {
-    if (darkMode) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
   }, [darkMode]);
 
   useEffect(() => {
+    // Attempt to fetch keys from backend on mount
+    fetchBackendKeys();
+
     // Initial fetch
     fetchLatestNews('lifestyle', false).then(setCachedNews);
     
@@ -193,14 +206,15 @@ const App: React.FC = () => {
     setIsTyping(true);
 
     try {
-      // 1. Intention Classification (Uses OpenRouter)
+      // 1. Intention Classification
       const intention = await classifyUserIntention(userMsg.content);
       console.log("Intention:", intention);
 
       let botContent = "";
       let generatedImageUrl = undefined;
+      let newsArticlesForChat: NewsArticle[] = [];
 
-      // 2. Routing based on intention
+      // 2. Routing
       if (intention.type === 'generate_image') {
         setLoadingAction('Generating Image...');
         const blob = await generateImageHF(intention.query);
@@ -219,13 +233,17 @@ const App: React.FC = () => {
         setLoadingAction('Fetching News...');
         const articles = await fetchLatestNews(intention.query || 'lifestyle', true);
         setCachedNews(articles);
+        newsArticlesForChat = articles; // Store articles to display in chat
         botContent = await summarizeNewsForChat(articles, userMsg.content, settings.systemPrompt);
         
       } else {
         // Chat
         const currentChat = activeChats.find(c => c.id === activeChatId);
         const history = currentChat ? [...currentChat.messages, userMsg] : [userMsg];
+        const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        
         const fullPrompt = `
+          Current Date: ${today}
           ${settings.systemPrompt}
           My Name: ${settings.userName}
           Partner Name: ${settings.partnerName}
@@ -240,12 +258,32 @@ const App: React.FC = () => {
         role: 'assistant',
         content: botContent,
         image: generatedImageUrl,
+        newsArticles: newsArticlesForChat.length > 0 ? newsArticlesForChat : undefined,
         timestamp: Date.now()
       };
 
       setChats(prev => prev.map(c => c.id === activeChatId ? {
         ...c, messages: [...c.messages, botMsg]
       } : c));
+
+      // --- AUTO RENAME LOGIC ---
+      // Reconstruct the message history for this session to send to the title generator
+      const chatContext = activeChats.find(c => c.id === activeChatId);
+      // We append userMsg and botMsg because 'activeChats' is from the start of the function 
+      // (before these were added to state)
+      const fullHistory = chatContext ? [...chatContext.messages, userMsg, botMsg] : [userMsg, botMsg];
+
+      // Generate title after 1st turn (2 msgs) or 2nd turn (4 msgs) for better context
+      if (fullHistory.length === 2 || fullHistory.length === 4) {
+        generateChatTitle(fullHistory).then(newTitle => {
+           if (newTitle) {
+             setChats(currentChats => currentChats.map(c => 
+               c.id === activeChatId ? { ...c, title: newTitle } : c
+             ));
+           }
+        });
+      }
+      // -------------------------
 
     } catch (error: any) {
       console.error(error);
@@ -254,14 +292,14 @@ const App: React.FC = () => {
         id: generateId(), 
         role: 'system', 
         content: isKeyError 
-          ? "Baby, please check 'Settings > API Keys'. I can't connect to the server." 
+          ? "Baby, I can't connect. I tried fetching the key from your backend but it failed. Please check Settings." 
           : "Baby, network issue hai shayad. Try again?", 
         timestamp: Date.now() 
       };
       setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: [...c.messages, errM] } : c));
       
       if (isKeyError) {
-        setShowSettings(true); // Open settings automatically if keys are missing
+        setShowSettings(true); 
       }
     } finally {
       setIsTyping(false);
@@ -292,9 +330,38 @@ const App: React.FC = () => {
                  <div className={`px-5 py-3.5 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-700 text-white rounded-tr-sm' : `${theme.msgBot} border text-gray-700 dark:text-gray-200 rounded-tl-sm`}`}>
                    {msg.content}
                  </div>
+                 
+                 {/* Generated Image Display */}
                  {msg.image && (
                    <img src={msg.image} alt="Generated" className="rounded-xl shadow-lg border-4 border-white dark:border-gray-700 max-w-full" />
                  )}
+
+                 {/* News Cards Display inside Chat */}
+                 {msg.newsArticles && msg.newsArticles.length > 0 && (
+                   <div className="w-full flex gap-3 overflow-x-auto py-2 custom-scrollbar">
+                     {msg.newsArticles.map((article, idx) => (
+                       <a 
+                         key={idx} 
+                         href={article.url} 
+                         target="_blank" 
+                         rel="noreferrer"
+                         className="flex-shrink-0 w-60 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden hover:shadow-md transition-all group"
+                       >
+                         <div className="h-32 overflow-hidden">
+                           <img src={article.image} alt={article.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                         </div>
+                         <div className="p-3">
+                           <h4 className="text-xs font-bold text-gray-800 dark:text-gray-200 line-clamp-2 mb-1">{article.title}</h4>
+                           <div className="flex items-center justify-between text-[10px] text-gray-500">
+                             <span>{article.source}</span>
+                             <ExternalLink size={10} />
+                           </div>
+                         </div>
+                       </a>
+                     ))}
+                   </div>
+                 )}
+
                  <span className="text-[10px] text-gray-400">{new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                </div>
              </div>
@@ -328,7 +395,6 @@ const App: React.FC = () => {
     );
   };
 
-  // Gallery and News renderers remain the same, just keeping the component structure clean
   const renderGallery = () => (
     <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
       <h2 className="text-2xl font-bold mb-6 flex items-center gap-2 dark:text-white"><ImageIcon className="text-pink-500"/> Image Memories</h2>

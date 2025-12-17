@@ -4,6 +4,7 @@ export interface Message {
   content: string;
   timestamp: number;
   image?: string;
+  newsArticles?: NewsArticle[]; // Added to support showing news cards in chat
 }
 
 export interface ChatSession {
@@ -31,8 +32,7 @@ export interface AppSettings {
   newsRefreshInterval: number; // in minutes
   // Manual API Key Overrides
   keyOpenRouter?: string;
-  keyHuggingFace?: string;
-  keyGNews?: string;
+  // keyGNews removed as it is now hardcoded/auto-configured
 }
 
 export interface NewsArticle {
