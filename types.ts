@@ -29,6 +29,10 @@ export interface AppSettings {
   themeId: 'romantic' | 'ocean' | 'nature' | 'sunset' | 'midnight';
   fontFamily: 'Quicksand' | 'Inter' | 'Playfair Display' | 'Fira Code';
   newsRefreshInterval: number; // in minutes
+  // Manual API Key Overrides
+  keyOpenRouter?: string;
+  keyHuggingFace?: string;
+  keyGNews?: string;
 }
 
 export interface NewsArticle {

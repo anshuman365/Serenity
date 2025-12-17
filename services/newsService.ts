@@ -59,11 +59,7 @@ export const checkAndNotifyNews = async () => {
   if (Notification.permission === "granted") {
     // Check if we need to fetch
     const articles = await fetchLatestNews('top headlines', false);
-    // Simple logic: If we have articles and it's a fresh fetch interval (handled by fetchLatestNews logic),
-    // we could send a notification. 
-    // Here we just simulate a check. In a real PWA, you'd compare ID/hashes.
     
-    // For demo: randomly notify if plenty of news exists
     if (articles.length > 0 && Math.random() > 0.8) {
        new Notification("Serenity Updates", {
          body: `Latest news: ${articles[0].title}`,

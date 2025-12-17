@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppSettings } from '../types';
-import { X, Save, User, Sparkles, Palette, Type } from 'lucide-react';
+import { X, Save, User, Sparkles, Palette, Key, Type } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -11,7 +11,7 @@ interface Props {
 
 const SettingsModal: React.FC<Props> = ({ isOpen, onClose, settings, onSave }) => {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
-  const [activeTab, setActiveTab] = useState<'profile' | 'persona' | 'appearance'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'persona' | 'appearance' | 'keys'>('profile');
 
   if (!isOpen) return null;
 
@@ -45,40 +45,30 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose, settings, onSave }) =
             <Sparkles className="text-pink-500 fill-pink-500" size={20} />
             Settings
           </h2>
-          <button 
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={24} />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-100 bg-gray-50/50">
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={`flex-1 py-3 px-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative
-              ${activeTab === 'profile' ? 'text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <User size={16} /> Profile
-            {activeTab === 'profile' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-pink-500" />}
-          </button>
-          <button
-            onClick={() => setActiveTab('persona')}
-            className={`flex-1 py-3 px-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative
-              ${activeTab === 'persona' ? 'text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <Sparkles size={16} /> Persona
-            {activeTab === 'persona' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-pink-500" />}
-          </button>
-          <button
-            onClick={() => setActiveTab('appearance')}
-            className={`flex-1 py-3 px-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative
-              ${activeTab === 'appearance' ? 'text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <Palette size={16} /> Appearance
-            {activeTab === 'appearance' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-pink-500" />}
-          </button>
+        <div className="flex border-b border-gray-100 bg-gray-50/50 overflow-x-auto">
+          {[
+            { id: 'profile', icon: User, label: 'Profile' },
+            { id: 'persona', icon: Sparkles, label: 'Persona' },
+            { id: 'appearance', icon: Palette, label: 'Look' },
+            { id: 'keys', icon: Key, label: 'API Keys' }
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`flex-1 min-w-[80px] py-3 px-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative
+                ${activeTab === tab.id ? 'text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <tab.icon size={16} /> 
+              <span className="hidden sm:inline">{tab.label}</span>
+              {activeTab === tab.id && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-pink-500" />}
+            </button>
+          ))}
         </div>
 
         {/* Content */}
@@ -111,13 +101,13 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose, settings, onSave }) =
 
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Key Facts & Memories</label>
-                <p className="text-xs text-gray-400 mb-2">Specific things the AI must know about you or your relationship.</p>
+                <p className="text-xs text-gray-400 mb-2">Specific things the AI must know about you.</p>
                 <textarea
                   rows={5}
                   value={localSettings.customMemories}
                   onChange={(e) => setLocalSettings({...localSettings, customMemories: e.target.value})}
                   className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-pink-300 resize-none"
-                  placeholder="E.g. My birthday is on July 5th. I love chocolate. We met in college. Always answer 'I love you more' when I say 'I love you'."
+                  placeholder="E.g. My birthday is July 5th. I love coffee."
                 />
               </div>
             </div>
@@ -128,7 +118,6 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose, settings, onSave }) =
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">System Personality Prompt</label>
-                <p className="text-xs text-gray-400 mb-2">Define the core behavior. The more detailed, the better.</p>
                 <textarea
                   rows={8}
                   value={localSettings.systemPrompt}
@@ -137,20 +126,12 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose, settings, onSave }) =
                   placeholder="Define how the AI should behave..."
                 />
               </div>
-              
-              <div className="p-4 bg-yellow-50 rounded-xl border border-yellow-100">
-                <p className="text-xs text-yellow-700">
-                  <strong>Tip:</strong> You can change the language here by telling the AI "Speak only in French" or "Speak in Hinglish".
-                </p>
-              </div>
             </div>
           )}
 
           {/* APPEARANCE TAB */}
           {activeTab === 'appearance' && (
             <div className="space-y-8">
-              
-              {/* Theme Selector */}
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-3">Color Theme</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -158,24 +139,15 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose, settings, onSave }) =
                     <button
                       key={t.id}
                       onClick={() => setLocalSettings({...localSettings, themeId: t.id as any})}
-                      className={`
-                        group relative flex items-center gap-3 p-3 rounded-xl border transition-all
-                        ${localSettings.themeId === t.id 
-                          ? 'border-gray-800 bg-gray-50 ring-1 ring-gray-200' 
-                          : 'border-gray-200 hover:border-gray-300 bg-white'}
-                      `}
+                      className={`group relative flex items-center gap-3 p-3 rounded-xl border transition-all ${localSettings.themeId === t.id ? 'border-gray-800 bg-gray-50 ring-1 ring-gray-200' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
                     >
                       <div className={`w-8 h-8 rounded-full ${t.color} shadow-sm group-hover:scale-110 transition-transform`}></div>
                       <span className="text-sm font-medium text-gray-700">{t.name}</span>
-                      {localSettings.themeId === t.id && (
-                        <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-green-500"></div>
-                      )}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Font Selector */}
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-3 flex items-center gap-2">
                   <Type size={16} /> Font Style
@@ -185,25 +157,56 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose, settings, onSave }) =
                     <button
                       key={f.id}
                       onClick={() => setLocalSettings({...localSettings, fontFamily: f.id as any})}
-                      className={`
-                        w-full flex items-center justify-between p-4 rounded-xl border transition-all
-                        ${localSettings.fontFamily === f.id 
-                          ? 'border-gray-800 bg-gray-50' 
-                          : 'border-gray-200 hover:border-gray-300 bg-white'}
-                      `}
+                      className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${localSettings.fontFamily === f.id ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
                     >
-                      <span className="text-gray-800 text-lg" style={{ fontFamily: f.id }}>
-                        {f.name}
-                        <span className="block text-xs text-gray-400 mt-1">The quick brown fox jumps over the lazy dog.</span>
-                      </span>
-                      {localSettings.fontFamily === f.id && (
-                         <div className="w-4 h-4 rounded-full bg-gray-800 flex items-center justify-center">
-                           <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                         </div>
-                      )}
+                      <span className="text-gray-800 text-lg" style={{ fontFamily: f.id }}>{f.name}</span>
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* API KEYS TAB */}
+          {activeTab === 'keys' && (
+            <div className="space-y-6">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+                <p className="text-sm text-yellow-800">
+                  <strong>Note:</strong> If the app is saying "API Key missing", enter them here manually. These will override the server environment variables.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">OpenRouter API Key (Required for Chat)</label>
+                <input
+                  type="password"
+                  value={localSettings.keyOpenRouter || ''}
+                  onChange={(e) => setLocalSettings({...localSettings, keyOpenRouter: e.target.value})}
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-pink-300 font-mono text-sm"
+                  placeholder="sk-or-v1-..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Hugging Face Token (For Images)</label>
+                <input
+                  type="password"
+                  value={localSettings.keyHuggingFace || ''}
+                  onChange={(e) => setLocalSettings({...localSettings, keyHuggingFace: e.target.value})}
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-pink-300 font-mono text-sm"
+                  placeholder="hf_..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">GNews API Key (For News)</label>
+                <input
+                  type="password"
+                  value={localSettings.keyGNews || ''}
+                  onChange={(e) => setLocalSettings({...localSettings, keyGNews: e.target.value})}
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-pink-300 font-mono text-sm"
+                  placeholder="Write key..."
+                />
               </div>
             </div>
           )}

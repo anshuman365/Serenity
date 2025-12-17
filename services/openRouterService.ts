@@ -10,18 +10,25 @@ const getHeaders = () => ({
 
 // 1. Classify User Intention
 export const classifyUserIntention = async (userInput: string): Promise<IntentionResponse> => {
-  if (!CONFIG.OPENROUTER_API) throw new Error("OpenRouter API Key missing");
+  // Fail fast if no key
+  if (!CONFIG.OPENROUTER_API) {
+    console.error("OpenRouter Key is missing in config");
+    // Default to chat if key is missing so we can show the error in the UI
+    return { type: 'chat', query: userInput }; 
+  }
 
   const systemInstruction = `
-    Analyze the user's input and classify the intention into one of three categories:
-    1. 'generate_image' -> If the user explicitly asks to create, draw, generate, or show an image/picture/photo.
-    2. 'fetch_news' -> If the user asks for latest news, updates, headlines, or current events.
-    3. 'chat' -> For normal conversation, advice, emotional support, or general questions.
+    You are an intention classifier. Analyze the input and return a JSON object.
+    
+    Categories:
+    1. 'generate_image': User wants to create/draw/see an image.
+    2. 'fetch_news': User asks for news, headlines, updates.
+    3. 'chat': Normal conversation.
 
-    Return ONLY a raw JSON object (no markdown formatting) with this structure:
+    Response Format (JSON ONLY):
     {
       "type": "chat" | "generate_image" | "fetch_news",
-      "query": "extracted core subject or optimized prompt"
+      "query": "refined search query or prompt"
     }
   `;
 
@@ -30,7 +37,7 @@ export const classifyUserIntention = async (userInput: string): Promise<Intentio
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({
-        model: "openai/gpt-3.5-turbo", // Fast model for classification
+        model: "openai/gpt-3.5-turbo", // Lightweight model for classification
         messages: [
           { role: "system", content: systemInstruction },
           { role: "user", content: userInput }
@@ -39,12 +46,21 @@ export const classifyUserIntention = async (userInput: string): Promise<Intentio
       })
     });
 
+    if (!response.ok) {
+      throw new Error(`OpenRouter Classifier Error: ${response.status}`);
+    }
+
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     
-    // Clean string to ensure valid JSON
-    const jsonStr = content.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(jsonStr);
+    // Parse JSON safely
+    try {
+        const jsonStr = content.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(jsonStr);
+    } catch (e) {
+        // Fallback if model didn't return valid JSON
+        return { type: 'chat', query: userInput };
+    }
   } catch (error) {
     console.warn("Classification failed, defaulting to chat", error);
     return { type: 'chat', query: userInput };
@@ -56,10 +72,13 @@ export const generateOpenRouterResponse = async (
   history: Message[],
   systemPrompt: string
 ): Promise<string> => {
-  if (!CONFIG.OPENROUTER_API) throw new Error("OpenRouter API Key missing");
+  
+  if (!CONFIG.OPENROUTER_API) {
+    throw new Error("API Key missing. Please add OPENROUTER_API in .env or Settings.");
+  }
 
-  // We use google/gemini-2.0-flash-exp via OpenRouter as it's often free/cheap and smart, 
-  // or fallback to whatever you have configured.
+  // Using a reliable model via OpenRouter (Gemini Flash via OpenRouter or GPT-3.5)
+  // Google models via OpenRouter are often free/cheap.
   const MODEL = "google/gemini-2.0-flash-001"; 
 
   try {
@@ -78,30 +97,33 @@ export const generateOpenRouterResponse = async (
       })
     });
 
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || `API Error: ${response.status}`);
+    }
+
     const data = await response.json();
-    if (data.error) throw new Error(data.error.message);
-    return data.choices[0]?.message?.content || "";
+    return data.choices?.[0]?.message?.content || "Hmm, I couldn't think of a response.";
   } catch (error) {
-    console.error("Chat Gen Error:", error);
+    console.error("OpenRouter Error:", error);
     throw error;
   }
 };
 
 // 3. Summarize News
 export const summarizeNewsForChat = async (news: NewsArticle[], originalQuery: string, systemPersona: string): Promise<string> => {
-  if (!news.length) return "Baby, mujhe abhi koi news nahi mili.";
+  if (!news.length) return "Baby, mujhe koi latest news nahi mili abhi.";
 
-  const newsContext = news.map(n => `- ${n.title}: ${n.description}`).join('\n');
+  const newsContext = news.map(n => `- ${n.title} (${n.source})`).join('\n');
   
   const prompt = `
     ${systemPersona}
     
-    The user asked: "${originalQuery}".
-    Here is the latest news data I fetched:
+    Context: The user asked about "${originalQuery}".
+    I have fetched these headlines:
     ${newsContext}
 
-    Please summarize this news for the user in your boyfriend persona (Hinglish). 
-    Keep it engaging but informative. Don't list everything boringly, talk like you are sharing updates with your girlfriend.
+    Task: Summarize these updates for the user in your boyfriend persona (Hinglish).
   `;
 
   return generateOpenRouterResponse([], prompt);

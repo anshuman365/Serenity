@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Send, Menu, Settings, Plus, MessageSquare, 
   Image as ImageIcon, Newspaper, Sparkles, Bot, 
-  Trash2, ChevronLeft, User, Sun, Moon,
-  Home, RefreshCw
+  ChevronLeft, User, Sun, Moon,
+  RefreshCw
 } from 'lucide-react';
 import { generateOpenRouterResponse, classifyUserIntention, summarizeNewsForChat } from './services/openRouterService';
 import { generateImageHF } from './services/imageService';
@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   newsRefreshInterval: 20
 };
 
-// Theme configurations
+// Theme configurations (kept same as before)
 const THEMES = {
   romantic: {
     gradient: 'from-pink-500 to-purple-600',
@@ -74,7 +74,6 @@ const THEMES = {
 };
 
 const App: React.FC = () => {
-  // --- Global State ---
   const [activePage, setActivePage] = useState<PageView>('chat');
   const [darkMode, setDarkMode] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -84,7 +83,6 @@ const App: React.FC = () => {
     } catch { return DEFAULT_SETTINGS; }
   });
 
-  // --- Chat State ---
   const [chats, setChats] = useState<ChatSession[]>(() => {
     try {
       const saved = localStorage.getItem('serenity_chats');
@@ -94,9 +92,8 @@ const App: React.FC = () => {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [loadingAction, setLoadingAction] = useState<string | null>(null); // 'generating image' | 'fetching news'
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
-  // --- Image History State ---
   const [imageHistory, setImageHistory] = useState<ImageHistoryItem[]>(() => {
     try {
       const saved = localStorage.getItem('serenity_images');
@@ -104,17 +101,12 @@ const App: React.FC = () => {
     } catch { return []; }
   });
 
-  // --- News State ---
   const [cachedNews, setCachedNews] = useState<NewsArticle[]>([]);
-
-  // --- UI State ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const theme = THEMES[settings.themeId] || THEMES.romantic;
-
-  // --- Effects ---
 
   useEffect(() => {
     if (!currentChatId && chats.length > 0) setCurrentChatId(chats[0].id);
@@ -136,32 +128,26 @@ const App: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chats, currentChatId, isTyping, activePage]);
 
-  // Dark Mode
   useEffect(() => {
     if (darkMode) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [darkMode]);
 
-  // News Notification & Background Fetch
   useEffect(() => {
-    // Initial Load
+    // Initial fetch
     fetchLatestNews('lifestyle', false).then(setCachedNews);
-
-    // Permission
+    
+    // Notification logic
     if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
       Notification.requestPermission();
     }
-
-    // Interval
     const interval = setInterval(() => {
       checkAndNotifyNews();
-      fetchLatestNews('lifestyle', false).then(setCachedNews); // Refresh internal state
+      fetchLatestNews('lifestyle', false).then(setCachedNews); 
     }, settings.newsRefreshInterval * 60 * 1000);
 
     return () => clearInterval(interval);
   }, [settings.newsRefreshInterval]);
-
-  // --- Handlers ---
 
   const handleCreateNewChat = () => {
     const newChat: ChatSession = {
@@ -177,17 +163,9 @@ const App: React.FC = () => {
     setIsSidebarOpen(false);
   };
 
-  const deleteChat = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    const f = chats.filter(c => c.id !== id);
-    setChats(f);
-    if (currentChatId === id) setCurrentChatId(f.length ? f[0].id : null);
-  };
-
   const handleSendMessage = async () => {
     if (!input.trim()) return;
     
-    // 1. Setup User Message
     let activeChatId = currentChatId;
     let activeChats = [...chats];
     if (!activeChatId) {
@@ -215,20 +193,19 @@ const App: React.FC = () => {
     setIsTyping(true);
 
     try {
-      // 2. Classify Intention
+      // 1. Intention Classification (Uses OpenRouter)
       const intention = await classifyUserIntention(userMsg.content);
-      console.log("Intention Detected:", intention);
+      console.log("Intention:", intention);
 
-      // 3. Action based on intention
       let botContent = "";
       let generatedImageUrl = undefined;
 
+      // 2. Routing based on intention
       if (intention.type === 'generate_image') {
         setLoadingAction('Generating Image...');
         const blob = await generateImageHF(intention.query);
         generatedImageUrl = URL.createObjectURL(blob);
         
-        // Save to History
         const newImgItem: ImageHistoryItem = {
            id: generateId(),
            url: generatedImageUrl,
@@ -236,16 +213,16 @@ const App: React.FC = () => {
            createdAt: Date.now()
         };
         setImageHistory(prev => [newImgItem, ...prev]);
-        botContent = "Ye lo baby, maine tumhari request pe ye banaya. Kaisa laga?";
+        botContent = "Ye lo baby, kaisa laga?";
         
       } else if (intention.type === 'fetch_news') {
         setLoadingAction('Fetching News...');
-        const articles = await fetchLatestNews(intention.query || 'lifestyle', true); // Force refresh on manual request
+        const articles = await fetchLatestNews(intention.query || 'lifestyle', true);
         setCachedNews(articles);
         botContent = await summarizeNewsForChat(articles, userMsg.content, settings.systemPrompt);
         
       } else {
-        // Normal Chat
+        // Chat
         const currentChat = activeChats.find(c => c.id === activeChatId);
         const history = currentChat ? [...currentChat.messages, userMsg] : [userMsg];
         const fullPrompt = `
@@ -254,10 +231,10 @@ const App: React.FC = () => {
           Partner Name: ${settings.partnerName}
           Memories: ${settings.customMemories}
         `;
+        
         botContent = await generateOpenRouterResponse(history, fullPrompt);
       }
 
-      // 4. Add Bot Message
       const botMsg: Message = {
         id: generateId(),
         role: 'assistant',
@@ -272,15 +249,25 @@ const App: React.FC = () => {
 
     } catch (error: any) {
       console.error(error);
-      const errM: Message = { id: generateId(), role: 'system', content: `Error: ${error.message || 'Something went wrong.'}`, timestamp: Date.now() };
+      const isKeyError = error.message.includes('API Key') || error.message.includes('missing');
+      const errM: Message = { 
+        id: generateId(), 
+        role: 'system', 
+        content: isKeyError 
+          ? "Baby, please check 'Settings > API Keys'. I can't connect to the server." 
+          : "Baby, network issue hai shayad. Try again?", 
+        timestamp: Date.now() 
+      };
       setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: [...c.messages, errM] } : c));
+      
+      if (isKeyError) {
+        setShowSettings(true); // Open settings automatically if keys are missing
+      }
     } finally {
       setIsTyping(false);
       setLoadingAction(null);
     }
   };
-
-  // --- Renderers ---
 
   const renderChat = () => {
     const activeChat = chats.find(c => c.id === currentChatId);
@@ -293,7 +280,7 @@ const App: React.FC = () => {
                  <Bot size={48} className="text-white" />
                </div>
                <h3 className="text-2xl font-bold dark:text-gray-200">Hi, {settings.partnerName}</h3>
-               <p className="dark:text-gray-400">Main {settings.userName} hoon. Baat karein?</p>
+               <p className="dark:text-gray-400">Main {settings.userName} hoon.</p>
              </div>
            )}
            {activeChat?.messages.map(msg => (
@@ -341,6 +328,7 @@ const App: React.FC = () => {
     );
   };
 
+  // Gallery and News renderers remain the same, just keeping the component structure clean
   const renderGallery = () => (
     <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
       <h2 className="text-2xl font-bold mb-6 flex items-center gap-2 dark:text-white"><ImageIcon className="text-pink-500"/> Image Memories</h2>
@@ -402,7 +390,6 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 transition-colors duration-300" style={{fontFamily: settings.fontFamily}}>
-      
       {/* Sidebar */}
       <aside className={`fixed md:static inset-y-0 z-30 w-72 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="flex flex-col h-full p-4">
@@ -412,7 +399,6 @@ const App: React.FC = () => {
             </h1>
             <button onClick={()=>setIsSidebarOpen(false)} className="md:hidden text-gray-400"><ChevronLeft/></button>
           </div>
-          
           <nav className="space-y-2 mb-6">
             <button onClick={() => { setActivePage('chat'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activePage === 'chat' ? `${theme.bgSoft} ${theme.primary} font-medium` : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
               <MessageSquare size={20}/> Chat
@@ -424,11 +410,9 @@ const App: React.FC = () => {
               <Newspaper size={20}/> News Feed
             </button>
           </nav>
-
           <button onClick={handleCreateNewChat} className={`w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 dark:border-gray-700 p-3 rounded-xl text-gray-500 hover:border-pink-400 hover:text-pink-500 transition-all mb-4`}>
              <Plus size={18}/> New Conversation
           </button>
-
           <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
             {chats.map(c => (
               <div key={c.id} onClick={()=>{setCurrentChatId(c.id); setActivePage('chat'); setIsSidebarOpen(false);}} className={`p-2 rounded-lg cursor-pointer text-sm truncate transition-colors ${currentChatId === c.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
@@ -436,7 +420,6 @@ const App: React.FC = () => {
               </div>
             ))}
           </div>
-
           <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
              <div className="flex items-center gap-2">
                 <div className={`w-8 h-8 rounded-full ${theme.buttonGradient} flex items-center justify-center text-white font-bold`}>{settings.partnerName.charAt(0)}</div>
