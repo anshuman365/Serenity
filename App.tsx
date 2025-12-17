@@ -1,35 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Send, 
-  Menu, 
-  Settings, 
-  Plus, 
-  MessageSquare, 
-  Image as ImageIcon,
-  Newspaper, 
-  Sparkles, 
-  Bot,
-  Trash2,
-  ChevronLeft,
-  User
+  Send, Menu, Settings, Plus, MessageSquare, 
+  Image as ImageIcon, Newspaper, Sparkles, Bot, 
+  Trash2, ChevronLeft, User, Sun, Moon,
+  Home, RefreshCw
 } from 'lucide-react';
-import { generateOpenRouterResponse } from './services/openRouterService';
-import { generateGeminiResponse } from './services/geminiService';
+import { generateOpenRouterResponse, classifyUserIntention, summarizeNewsForChat } from './services/openRouterService';
+import { generateImageHF } from './services/imageService';
+import { fetchLatestNews, checkAndNotifyNews } from './services/newsService';
 import SettingsModal from './components/SettingsModal';
-import ImageGenModal from './components/ImageGenModal';
-import NewsWidget from './components/NewsWidget';
-import { ChatSession, Message, AppSettings } from './types';
+import { ChatSession, Message, AppSettings, PageView, ImageHistoryItem, NewsArticle } from './types';
 
-// Simple ID generator
+// Utils
 const generateId = () => Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
 
 const DEFAULT_SETTINGS: AppSettings = {
   userName: 'Tera Hero',
   partnerName: 'Meri Jaan',
-  systemPrompt: 'You are a loving, romantic, and caring boyfriend. You speak strictly in Hinglish (a mix of Hindi and English). Your tone is casual, flirtatious, and deeply affectionate. Treat the user as your girlfriend. Always ask about her well-being, use endearments like "Baby", "Shona", "Jaan", "Babu". Example responses: "Kaisi ho baby?", "Khana khaya tumne?", "Aaj ka din kaisa tha?", "Main tumhara hi wait kar raha tha". Be witty, supportive, and act exactly like a real boyfriend would.',
+  systemPrompt: 'You are a loving, romantic, and caring boyfriend. You speak strictly in Hinglish (a mix of Hindi and English). Your tone is casual, flirtatious, and deeply affectionate. Treat the user as your girlfriend. Always ask about her well-being. Be witty, supportive, and act exactly like a real boyfriend would.',
   customMemories: '',
   themeId: 'romantic',
-  fontFamily: 'Quicksand'
+  fontFamily: 'Quicksand',
+  newsRefreshInterval: 20
 };
 
 // Theme configurations
@@ -37,123 +29,137 @@ const THEMES = {
   romantic: {
     gradient: 'from-pink-500 to-purple-600',
     primary: 'text-pink-500',
-    bgSoft: 'bg-pink-50',
-    border: 'border-pink-200',
-    ring: 'focus:ring-pink-400',
-    iconFill: 'fill-pink-100',
+    bgSoft: 'bg-pink-50 dark:bg-pink-900/20',
+    border: 'border-pink-200 dark:border-pink-800',
     buttonGradient: 'bg-gradient-to-r from-pink-500 to-purple-600',
-    msgUser: 'bg-gradient-to-br from-pink-500 to-purple-600'
+    msgBot: 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700',
+    msgUser: 'bg-gradient-to-br from-pink-500 to-purple-600',
   },
   ocean: {
     gradient: 'from-blue-500 to-cyan-500',
     primary: 'text-blue-500',
-    bgSoft: 'bg-blue-50',
-    border: 'border-blue-200',
-    ring: 'focus:ring-blue-400',
-    iconFill: 'fill-blue-100',
+    bgSoft: 'bg-blue-50 dark:bg-blue-900/20',
+    border: 'border-blue-200 dark:border-blue-800',
     buttonGradient: 'bg-gradient-to-r from-blue-500 to-cyan-600',
-    msgUser: 'bg-gradient-to-br from-blue-500 to-cyan-600'
+    msgBot: 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700',
+    msgUser: 'bg-gradient-to-br from-blue-500 to-cyan-600',
   },
   nature: {
     gradient: 'from-emerald-500 to-teal-600',
     primary: 'text-emerald-600',
-    bgSoft: 'bg-emerald-50',
-    border: 'border-emerald-200',
-    ring: 'focus:ring-emerald-400',
-    iconFill: 'fill-emerald-100',
+    bgSoft: 'bg-emerald-50 dark:bg-emerald-900/20',
+    border: 'border-emerald-200 dark:border-emerald-800',
     buttonGradient: 'bg-gradient-to-r from-emerald-500 to-teal-600',
-    msgUser: 'bg-gradient-to-br from-emerald-500 to-teal-600'
+    msgBot: 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700',
+    msgUser: 'bg-gradient-to-br from-emerald-500 to-teal-600',
   },
   sunset: {
     gradient: 'from-orange-500 to-red-500',
     primary: 'text-orange-600',
-    bgSoft: 'bg-orange-50',
-    border: 'border-orange-200',
-    ring: 'focus:ring-orange-400',
-    iconFill: 'fill-orange-100',
+    bgSoft: 'bg-orange-50 dark:bg-orange-900/20',
+    border: 'border-orange-200 dark:border-orange-800',
     buttonGradient: 'bg-gradient-to-r from-orange-500 to-red-500',
-    msgUser: 'bg-gradient-to-br from-orange-500 to-red-600'
+    msgBot: 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700',
+    msgUser: 'bg-gradient-to-br from-orange-500 to-red-600',
   },
   midnight: {
     gradient: 'from-gray-700 to-gray-900',
-    primary: 'text-gray-800',
-    bgSoft: 'bg-gray-100',
-    border: 'border-gray-300',
-    ring: 'focus:ring-gray-500',
-    iconFill: 'fill-gray-200',
+    primary: 'text-gray-600 dark:text-gray-300',
+    bgSoft: 'bg-gray-100 dark:bg-gray-800',
+    border: 'border-gray-300 dark:border-gray-600',
     buttonGradient: 'bg-gradient-to-r from-gray-700 to-black',
-    msgUser: 'bg-gradient-to-br from-gray-700 to-gray-900'
+    msgBot: 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600',
+    msgUser: 'bg-gradient-to-br from-gray-700 to-gray-900',
   }
 };
 
 const App: React.FC = () => {
-  // --- State ---
+  // --- Global State ---
+  const [activePage, setActivePage] = useState<PageView>('chat');
+  const [darkMode, setDarkMode] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const saved = localStorage.getItem('serenity_settings');
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+    } catch { return DEFAULT_SETTINGS; }
+  });
+
+  // --- Chat State ---
   const [chats, setChats] = useState<ChatSession[]>(() => {
     try {
       const saved = localStorage.getItem('serenity_chats');
       return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
+    } catch { return []; }
   });
-  
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  const [settings, setSettings] = useState<AppSettings>(() => {
+  const [loadingAction, setLoadingAction] = useState<string | null>(null); // 'generating image' | 'fetching news'
+
+  // --- Image History State ---
+  const [imageHistory, setImageHistory] = useState<ImageHistoryItem[]>(() => {
     try {
-      const saved = localStorage.getItem('serenity_settings');
-      const parsed = saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
-      // Merge with default to ensure new fields (like themeId) exist if loading old config
-      return { ...DEFAULT_SETTINGS, ...parsed };
-    } catch (e) { return DEFAULT_SETTINGS; }
+      const saved = localStorage.getItem('serenity_images');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
   });
 
-  // Modal States
+  // --- News State ---
+  const [cachedNews, setCachedNews] = useState<NewsArticle[]>([]);
+
+  // --- UI State ---
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showImageGen, setShowImageGen] = useState(false);
-  const [showNews, setShowNews] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const sidebarRef = useRef<HTMLDivElement>(null);
-
-  // Helper to get current theme
   const theme = THEMES[settings.themeId] || THEMES.romantic;
 
   // --- Effects ---
 
-  // Initialize selection
   useEffect(() => {
-    if (!currentChatId && chats.length > 0) {
-      setCurrentChatId(chats[0].id);
-    }
+    if (!currentChatId && chats.length > 0) setCurrentChatId(chats[0].id);
   }, [chats, currentChatId]);
 
-  // Persist chats
   useEffect(() => {
     localStorage.setItem('serenity_chats', JSON.stringify(chats));
   }, [chats]);
 
-  // Persist settings
   useEffect(() => {
     localStorage.setItem('serenity_settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Scroll to bottom
+  useEffect(() => {
+    localStorage.setItem('serenity_images', JSON.stringify(imageHistory));
+  }, [imageHistory]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chats, currentChatId, isTyping]);
+  }, [chats, currentChatId, isTyping, activePage]);
 
-  // Click outside sidebar
+  // Dark Mode
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node) && isSidebarOpen) {
-        setIsSidebarOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isSidebarOpen]);
+    if (darkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+  }, [darkMode]);
+
+  // News Notification & Background Fetch
+  useEffect(() => {
+    // Initial Load
+    fetchLatestNews('lifestyle', false).then(setCachedNews);
+
+    // Permission
+    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+      Notification.requestPermission();
+    }
+
+    // Interval
+    const interval = setInterval(() => {
+      checkAndNotifyNews();
+      fetchLatestNews('lifestyle', false).then(setCachedNews); // Refresh internal state
+    }, settings.newsRefreshInterval * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [settings.newsRefreshInterval]);
 
   // --- Handlers ---
 
@@ -167,26 +173,25 @@ const App: React.FC = () => {
     };
     setChats([newChat, ...chats]);
     setCurrentChatId(newChat.id);
+    setActivePage('chat');
     setIsSidebarOpen(false);
   };
 
-  const handleDeleteChat = (e: React.MouseEvent, id: string) => {
+  const deleteChat = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    const filteredChats = chats.filter(c => c.id !== id);
-    setChats(filteredChats);
-    if (currentChatId === id) {
-      setCurrentChatId(filteredChats.length > 0 ? filteredChats[0].id : null);
-    }
+    const f = chats.filter(c => c.id !== id);
+    setChats(f);
+    if (currentChatId === id) setCurrentChatId(f.length ? f[0].id : null);
   };
 
   const handleSendMessage = async () => {
     if (!input.trim()) return;
-
+    
+    // 1. Setup User Message
     let activeChatId = currentChatId;
     let activeChats = [...chats];
-
     if (!activeChatId) {
-      const newChat: ChatSession = {
+      const newChat = {
         id: generateId(),
         title: input.slice(0, 30) + '...',
         messages: [],
@@ -199,381 +204,268 @@ const App: React.FC = () => {
       setCurrentChatId(activeChatId);
     }
 
-    const userMsg: Message = {
-      id: generateId(),
-      role: 'user',
-      content: input,
-      timestamp: Date.now(),
-    };
-
-    const updatedChatsWithUser = activeChats.map(chat => {
-      if (chat.id === activeChatId) {
-        const title = chat.messages.length === 0 ? input.slice(0, 30) : chat.title;
-        return {
-          ...chat,
-          title,
-          messages: [...chat.messages, userMsg],
-          updatedAt: Date.now()
-        };
-      }
-      return chat;
-    });
-
-    setChats(updatedChatsWithUser);
+    const userMsg: Message = { id: generateId(), role: 'user', content: input, timestamp: Date.now() };
+    
+    // Optimistic Update
+    setChats(prev => prev.map(c => c.id === activeChatId ? {
+      ...c, messages: [...c.messages, userMsg], updatedAt: Date.now()
+    } : c));
+    
     setInput('');
     setIsTyping(true);
 
     try {
-      const currentSession = updatedChatsWithUser.find(c => c.id === activeChatId);
-      const history = currentSession ? currentSession.messages : [];
+      // 2. Classify Intention
+      const intention = await classifyUserIntention(userMsg.content);
+      console.log("Intention Detected:", intention);
 
-      // Construct system prompt with personalization and custom memories
-      const fullSystemPrompt = `
-${settings.systemPrompt}
+      // 3. Action based on intention
+      let botContent = "";
+      let generatedImageUrl = undefined;
 
-IMPORTANT CONTEXT:
-- Your Name: ${settings.userName}
-- Partner's Name: ${settings.partnerName}
-
-KEY MEMORIES & FACTS (Must Remember):
-${settings.customMemories || "No specific memories added yet."}
-      `.trim();
-
-      let responseText = "";
-      
-      try {
-        responseText = await generateOpenRouterResponse(history, fullSystemPrompt);
-      } catch (err) {
-        console.warn("OpenRouter failed, attempting fallback...", err);
-        responseText = await generateGeminiResponse(history, fullSystemPrompt);
+      if (intention.type === 'generate_image') {
+        setLoadingAction('Generating Image...');
+        const blob = await generateImageHF(intention.query);
+        generatedImageUrl = URL.createObjectURL(blob);
+        
+        // Save to History
+        const newImgItem: ImageHistoryItem = {
+           id: generateId(),
+           url: generatedImageUrl,
+           prompt: intention.query,
+           createdAt: Date.now()
+        };
+        setImageHistory(prev => [newImgItem, ...prev]);
+        botContent = "Ye lo baby, maine tumhari request pe ye banaya. Kaisa laga?";
+        
+      } else if (intention.type === 'fetch_news') {
+        setLoadingAction('Fetching News...');
+        const articles = await fetchLatestNews(intention.query || 'lifestyle', true); // Force refresh on manual request
+        setCachedNews(articles);
+        botContent = await summarizeNewsForChat(articles, userMsg.content, settings.systemPrompt);
+        
+      } else {
+        // Normal Chat
+        const currentChat = activeChats.find(c => c.id === activeChatId);
+        const history = currentChat ? [...currentChat.messages, userMsg] : [userMsg];
+        const fullPrompt = `
+          ${settings.systemPrompt}
+          My Name: ${settings.userName}
+          Partner Name: ${settings.partnerName}
+          Memories: ${settings.customMemories}
+        `;
+        botContent = await generateOpenRouterResponse(history, fullPrompt);
       }
 
+      // 4. Add Bot Message
       const botMsg: Message = {
         id: generateId(),
         role: 'assistant',
-        content: responseText,
+        content: botContent,
+        image: generatedImageUrl,
         timestamp: Date.now()
       };
 
-      setChats(prev => prev.map(chat => {
-        if (chat.id === activeChatId) {
-          return {
-            ...chat,
-            messages: [...chat.messages, botMsg],
-            updatedAt: Date.now()
-          };
-        }
-        return chat;
-      }));
+      setChats(prev => prev.map(c => c.id === activeChatId ? {
+        ...c, messages: [...c.messages, botMsg]
+      } : c));
 
-    } catch (error) {
-      console.error("All AI services failed", error);
-      const errorMsg: Message = {
-        id: generateId(),
-        role: 'system',
-        content: "Baby, thoda network issue ho raha hai. Main abhi connect nahi kar pa raha.",
-        timestamp: Date.now()
-      };
-      setChats(prev => prev.map(chat => {
-        if (chat.id === activeChatId) {
-          return { ...chat, messages: [...chat.messages, errorMsg] };
-        }
-        return chat;
-      }));
+    } catch (error: any) {
+      console.error(error);
+      const errM: Message = { id: generateId(), role: 'system', content: `Error: ${error.message || 'Something went wrong.'}`, timestamp: Date.now() };
+      setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: [...c.messages, errM] } : c));
     } finally {
       setIsTyping(false);
+      setLoadingAction(null);
     }
   };
 
-  const handleImageAction = (imageUrl: string) => {
-    if (!currentChatId) handleCreateNewChat();
-    setTimeout(() => {
-      setChats(prev => {
-        const targetId = currentChatId || prev[0].id;
-        return prev.map(chat => {
-          if (chat.id === targetId) {
-            const imgMsg: Message = {
-              id: generateId(),
-              role: 'assistant',
-              content: "Ye lo baby, tumhare liye banaya:",
-              image: imageUrl,
-              timestamp: Date.now()
-            };
-            return {
-              ...chat,
-              messages: [...chat.messages, imgMsg],
-              updatedAt: Date.now()
-            };
-          }
-          return chat;
-        });
-      });
-    }, 100);
+  // --- Renderers ---
+
+  const renderChat = () => {
+    const activeChat = chats.find(c => c.id === currentChatId);
+    return (
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+           {!activeChat && (
+             <div className="h-full flex flex-col items-center justify-center text-center opacity-60 p-4">
+               <div className={`w-24 h-24 bg-gradient-to-tr ${theme.gradient} rounded-full flex items-center justify-center mb-6`}>
+                 <Bot size={48} className="text-white" />
+               </div>
+               <h3 className="text-2xl font-bold dark:text-gray-200">Hi, {settings.partnerName}</h3>
+               <p className="dark:text-gray-400">Main {settings.userName} hoon. Baat karein?</p>
+             </div>
+           )}
+           {activeChat?.messages.map(msg => (
+             <div key={msg.id} className={`flex gap-4 max-w-3xl mx-auto ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+               <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-600 text-white' : `${theme.msgUser} text-white`}`}>
+                 {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
+               </div>
+               <div className={`flex flex-col gap-2 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                 <div className={`px-5 py-3.5 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-700 text-white rounded-tr-sm' : `${theme.msgBot} border text-gray-700 dark:text-gray-200 rounded-tl-sm`}`}>
+                   {msg.content}
+                 </div>
+                 {msg.image && (
+                   <img src={msg.image} alt="Generated" className="rounded-xl shadow-lg border-4 border-white dark:border-gray-700 max-w-full" />
+                 )}
+                 <span className="text-[10px] text-gray-400">{new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+               </div>
+             </div>
+           ))}
+           {isTyping && (
+             <div className="flex gap-4 max-w-3xl mx-auto items-center">
+                <div className={`w-8 h-8 rounded-full ${theme.msgUser} flex items-center justify-center text-white`}><Bot size={14}/></div>
+                <div className="bg-white dark:bg-gray-800 px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-700 text-xs text-gray-500 flex items-center gap-2">
+                   {loadingAction && <span className="animate-pulse font-medium text-pink-500">{loadingAction}</span>}
+                   {!loadingAction && <span className="flex gap-1"><span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"/>...</span>}
+                </div>
+             </div>
+           )}
+           <div ref={messagesEndRef} className="h-4"/>
+        </div>
+        <div className="p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-800">
+          <div className="max-w-3xl mx-auto flex items-center gap-2">
+            <input 
+              value={input} 
+              onChange={e=>setInput(e.target.value)} 
+              onKeyDown={e=>e.key==='Enter' && handleSendMessage()}
+              placeholder={`Message ${settings.userName}...`}
+              className="flex-1 bg-white dark:bg-gray-800 border-0 ring-1 ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-pink-400 rounded-2xl px-5 py-4 shadow-sm transition-all outline-none dark:text-white"
+            />
+            <button onClick={handleSendMessage} disabled={!input.trim() || isTyping} className={`p-4 rounded-xl shadow-lg transition-all transform hover:scale-105 active:scale-95 ${!input.trim() ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' : `${theme.buttonGradient} text-white`}`}>
+              <Send size={20}/>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
-  const activeChat = chats.find(c => c.id === currentChatId);
+  const renderGallery = () => (
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
+      <h2 className="text-2xl font-bold mb-6 flex items-center gap-2 dark:text-white"><ImageIcon className="text-pink-500"/> Image Memories</h2>
+      {imageHistory.length === 0 ? (
+        <div className="text-center py-20 text-gray-400">No images generated yet. Ask me to "draw something"!</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {imageHistory.map(img => (
+            <div key={img.id} className="bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all border border-gray-100 dark:border-gray-700 group">
+              <div className="relative aspect-square">
+                <img src={img.url} alt={img.prompt} className="w-full h-full object-cover"/>
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <a href={img.url} download className="p-2 bg-white rounded-full text-gray-900"><Sparkles size={18}/></a>
+                </div>
+              </div>
+              <div className="p-3">
+                <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">{img.prompt}</p>
+                <p className="text-xs text-gray-400 mt-1">{new Date(img.createdAt).toLocaleDateString()}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderNews = () => (
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold flex items-center gap-2 dark:text-white"><Newspaper className="text-purple-500"/> Latest Updates</h2>
+        <button 
+           onClick={() => fetchLatestNews('lifestyle', true).then(setCachedNews)}
+           className="p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm text-gray-500 hover:text-purple-500"
+        >
+          <RefreshCw size={20}/>
+        </button>
+      </div>
+      <div className="grid gap-4 max-w-4xl mx-auto">
+        {cachedNews.length === 0 ? (
+          <div className="text-center py-20 text-gray-400">Loading or no news available...</div>
+        ) : (
+          cachedNews.map((n, i) => (
+            <div key={i} className="flex flex-col md:flex-row gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+              <img src={n.image} alt={n.title} className="w-full md:w-48 h-32 object-cover rounded-lg"/>
+              <div className="flex-1">
+                <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-2">{n.title}</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">{n.description}</p>
+                <div className="flex justify-between items-center text-xs text-gray-400">
+                   <span>{n.source} • {new Date(n.publishedAt).toLocaleDateString()}</span>
+                   <a href={n.url} target="_blank" className="text-purple-500 hover:underline">Read more</a>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
 
   return (
-    <div 
-      className="flex h-screen overflow-hidden bg-gray-50 text-gray-800 relative transition-colors duration-500"
-      style={{ fontFamily: settings.fontFamily }}
-    >
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 transition-colors duration-300" style={{fontFamily: settings.fontFamily}}>
       
-      {/* Mobile Sidebar Overlay */}
-      {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-20 md:hidden" />
-      )}
-
       {/* Sidebar */}
-      <aside 
-        ref={sidebarRef}
-        className={`
-          fixed md:static inset-y-0 left-0 z-30 w-72 bg-white/80 backdrop-blur-xl border-r border-white/50 shadow-2xl md:shadow-none transform transition-transform duration-300 ease-in-out
-          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-        `}
-      >
+      <aside className={`fixed md:static inset-y-0 z-30 w-72 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="flex flex-col h-full p-4">
           <div className="flex items-center justify-between mb-8 px-2">
             <h1 className={`text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r ${theme.gradient} flex items-center gap-2`}>
-              <Sparkles className={`${theme.primary} ${theme.iconFill}`} />
-              Serenity
+              <Sparkles className={theme.primary}/> Serenity
             </h1>
-            <button 
-              onClick={() => setIsSidebarOpen(false)} 
-              className="md:hidden text-gray-400"
-            >
-              <ChevronLeft />
-            </button>
+            <button onClick={()=>setIsSidebarOpen(false)} className="md:hidden text-gray-400"><ChevronLeft/></button>
           </div>
+          
+          <nav className="space-y-2 mb-6">
+            <button onClick={() => { setActivePage('chat'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activePage === 'chat' ? `${theme.bgSoft} ${theme.primary} font-medium` : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+              <MessageSquare size={20}/> Chat
+            </button>
+            <button onClick={() => { setActivePage('gallery'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activePage === 'gallery' ? `${theme.bgSoft} ${theme.primary} font-medium` : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+              <ImageIcon size={20}/> Gallery
+            </button>
+            <button onClick={() => { setActivePage('news'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activePage === 'news' ? `${theme.bgSoft} ${theme.primary} font-medium` : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+              <Newspaper size={20}/> News Feed
+            </button>
+          </nav>
 
-          <button
-            onClick={handleCreateNewChat}
-            className={`w-full flex items-center justify-center gap-2 bg-white border border-gray-200 ${theme.bgSoft} hover:border-gray-300 text-gray-700 font-medium py-3 rounded-xl transition-all shadow-sm hover:shadow-md mb-6 group`}
-          >
-            <Plus size={20} className={`${theme.primary} group-hover:scale-110 transition-transform`} />
-            New Chat
+          <button onClick={handleCreateNewChat} className={`w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 dark:border-gray-700 p-3 rounded-xl text-gray-500 hover:border-pink-400 hover:text-pink-500 transition-all mb-4`}>
+             <Plus size={18}/> New Conversation
           </button>
 
-          <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-            {chats.map(chat => (
-              <div
-                key={chat.id}
-                onClick={() => {
-                  setCurrentChatId(chat.id);
-                  setIsSidebarOpen(false);
-                }}
-                className={`
-                  group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all
-                  ${currentChatId === chat.id 
-                    ? `${theme.bgSoft} border ${theme.border}` 
-                    : 'hover:bg-gray-100 border border-transparent'}
-                `}
-              >
-                <MessageSquare 
-                  size={18} 
-                  className={currentChatId === chat.id ? theme.primary : 'text-gray-400'} 
-                />
-                <div className="flex-1 overflow-hidden">
-                  <h3 className={`text-sm font-medium truncate ${currentChatId === chat.id ? 'text-gray-800' : 'text-gray-600'}`}>
-                    {chat.title || 'Untitled Chat'}
-                  </h3>
-                  <p className="text-xs text-gray-400 truncate">
-                    {new Date(chat.updatedAt).toLocaleDateString()}
-                  </p>
-                </div>
-                <button
-                  onClick={(e) => handleDeleteChat(e, chat.id)}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-opacity p-1"
-                >
-                  <Trash2 size={14} />
-                </button>
+          <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
+            {chats.map(c => (
+              <div key={c.id} onClick={()=>{setCurrentChatId(c.id); setActivePage('chat'); setIsSidebarOpen(false);}} className={`p-2 rounded-lg cursor-pointer text-sm truncate transition-colors ${currentChatId === c.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
+                {c.title}
               </div>
             ))}
-            
-            {chats.length === 0 && (
-              <div className="text-center text-gray-400 mt-10 text-sm px-4">
-                <p>No memories yet.</p>
-                <p>Start a new conversation!</p>
-              </div>
-            )}
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between px-2">
-            <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-full ${theme.buttonGradient} flex items-center justify-center text-white text-xs font-bold`}>
-                {settings.partnerName.charAt(0).toUpperCase()}
-              </div>
-              <span className="text-sm font-medium text-gray-700">{settings.partnerName}</span>
-            </div>
-            <button 
-              onClick={() => setShowSettings(true)}
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <Settings size={20} />
-            </button>
+          <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+             <div className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-full ${theme.buttonGradient} flex items-center justify-center text-white font-bold`}>{settings.partnerName.charAt(0)}</div>
+                <div className="text-sm font-medium">{settings.partnerName}</div>
+             </div>
+             <button onClick={()=>setShowSettings(true)} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"><Settings size={18}/></button>
           </div>
         </div>
       </aside>
 
-      {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col relative bg-gradient-to-b from-transparent to-white/50">
-        
-        {/* Header */}
-        <header className="h-16 flex items-center justify-between px-4 md:px-8 border-b border-white/50 bg-white/40 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setIsSidebarOpen(true)}
-              className="md:hidden p-2 -ml-2 text-gray-500 hover:bg-white/50 rounded-lg"
-            >
-              <Menu size={20} />
-            </button>
-            <div>
-              <h2 className="font-semibold text-gray-800">
-                {activeChat?.title || 'Welcome'}
-              </h2>
-              <p className="text-xs text-gray-500 flex items-center gap-1">
-                with <span className={`${theme.primary} font-medium`}>{settings.userName}</span>
-              </p>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col h-full relative">
+         <header className="h-16 flex items-center justify-between px-4 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
+            <div className="flex items-center gap-3">
+               <button onClick={()=>setIsSidebarOpen(true)} className="md:hidden p-2 text-gray-500"><Menu/></button>
+               <h2 className="font-semibold text-gray-800 dark:text-white capitalize">{activePage}</h2>
             </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setShowImageGen(true)}
-              className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-colors"
-              title="Generate Image"
-            >
-              <ImageIcon size={20} />
+            <button onClick={()=>setDarkMode(!darkMode)} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+               {darkMode ? <Sun size={20}/> : <Moon size={20}/>}
             </button>
-            <button 
-              onClick={() => setShowNews(true)}
-              className="p-2 text-purple-500 hover:bg-purple-50 rounded-xl transition-colors relative"
-              title="Latest News"
-            >
-              <Newspaper size={20} />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-400 rounded-full border-2 border-white"></span>
-            </button>
-          </div>
-        </header>
+         </header>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 scroll-smooth">
-          {!activeChat && chats.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-60">
-              <div className={`w-24 h-24 bg-gradient-to-tr ${theme.gradient} rounded-full flex items-center justify-center mb-6 animate-pulse opacity-50`}>
-                <Bot size={48} className="text-white" />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-700 mb-2">Hello, {settings.partnerName}</h3>
-              <p className="text-gray-500 max-w-md">
-                Main {settings.userName} hoon. Batao baby, kaise ho aaj?
-              </p>
-            </div>
-          ) : (
-            activeChat?.messages.map((msg) => (
-              <div 
-                key={msg.id} 
-                className={`flex gap-4 max-w-3xl mx-auto ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-              >
-                <div className={`
-                  w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm
-                  ${msg.role === 'user' ? 'bg-gray-800 text-white' : `${theme.msgUser} text-white`}
-                `}>
-                  {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
-                </div>
-                
-                <div className={`
-                  flex flex-col gap-2 max-w-[80%] md:max-w-[70%]
-                  ${msg.role === 'user' ? 'items-end' : 'items-start'}
-                `}>
-                  <div className={`
-                    px-5 py-3.5 rounded-2xl shadow-sm text-sm leading-relaxed whitespace-pre-wrap
-                    ${msg.role === 'user' 
-                      ? 'bg-gray-800 text-white rounded-tr-sm' 
-                      : 'bg-white border border-gray-100 text-gray-700 rounded-tl-sm'}
-                  `}>
-                    {msg.content}
-                  </div>
-                  
-                  {msg.image && (
-                    <div className="mt-2 rounded-xl overflow-hidden shadow-lg border-4 border-white">
-                      <img src={msg.image} alt="Generated content" className="w-full h-auto" />
-                    </div>
-                  )}
-                  
-                  <span className="text-[10px] text-gray-400 px-1">
-                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
-          
-          {isTyping && (
-             <div className="flex gap-4 max-w-3xl mx-auto">
-                <div className={`w-8 h-8 rounded-full ${theme.msgUser} flex-shrink-0 flex items-center justify-center text-white shadow-sm`}>
-                  <Bot size={14} />
-                </div>
-                <div className="bg-white border border-gray-100 px-5 py-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-1.5">
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${theme.bgSoft.replace('bg-', 'bg-').replace('-50', '-400')}`} style={{ animationDelay: '0ms' }} />
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${theme.bgSoft.replace('bg-', 'bg-').replace('-50', '-500')}`} style={{ animationDelay: '150ms' }} />
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${theme.bgSoft.replace('bg-', 'bg-').replace('-50', '-600')}`} style={{ animationDelay: '300ms' }} />
-                </div>
-             </div>
-          )}
-          
-          <div ref={messagesEndRef} className="h-4" />
-        </div>
+         {activePage === 'chat' && renderChat()}
+         {activePage === 'gallery' && renderGallery()}
+         {activePage === 'news' && renderNews()}
+      </div>
 
-        {/* Input Area */}
-        <div className="p-4 bg-white/60 backdrop-blur-md border-t border-white/50">
-          <div className="max-w-3xl mx-auto relative flex items-center gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder={`Message ${settings.userName}...`}
-              className={`flex-1 bg-white border-0 ring-1 ring-gray-200 hover:ring-gray-300 focus:ring-2 ${theme.ring} rounded-2xl px-5 py-4 shadow-sm transition-all focus:outline-none placeholder:text-gray-400`}
-            />
-            <button
-              onClick={handleSendMessage}
-              disabled={!input.trim() || isTyping}
-              className={`
-                p-4 rounded-xl shadow-lg transition-all transform hover:scale-105 active:scale-95
-                ${!input.trim() || isTyping 
-                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
-                  : `${theme.buttonGradient} text-white`}
-              `}
-            >
-              <Send size={20} className={isTyping ? 'opacity-0' : 'opacity-100'} />
-            </button>
-          </div>
-          <div className="text-center mt-2">
-             <p className="text-[10px] text-gray-400">
-               AI can make mistakes. Please verify important information.
-             </p>
-          </div>
-        </div>
-
-        {/* Modals & Widgets */}
-        <SettingsModal 
-          isOpen={showSettings} 
-          onClose={() => setShowSettings(false)} 
-          settings={settings}
-          onSave={setSettings}
-        />
-
-        <ImageGenModal
-          isOpen={showImageGen}
-          onClose={() => setShowImageGen(false)}
-          onImageGenerated={handleImageAction}
-        />
-
-        <NewsWidget
-          isOpen={showNews}
-          onClose={() => setShowNews(false)}
-        />
-      </main>
+      <SettingsModal isOpen={showSettings} onClose={()=>setShowSettings(false)} settings={settings} onSave={setSettings}/>
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={()=>setIsSidebarOpen(false)}/>}
     </div>
   );
 };

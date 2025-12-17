@@ -2,33 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 
-  Fallback styles in case Tailwind CDN has issues, 
-  and to satisfy the browser's request for index.css 
-*/
-
 body {
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar styling */
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: rgba(156, 163, 175, 0.5);
   border-radius: 3px;
 }
+::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.8); }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(156, 163, 175, 0.8);
+/* Glass Panel Utility */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* Dark mode overrides for glass */
+.dark .glass-panel {
+  background: rgba(17, 24, 39, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }

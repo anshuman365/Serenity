@@ -3,7 +3,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
-  image?: string; // For generated images
+  image?: string;
 }
 
 export interface ChatSession {
@@ -14,13 +14,21 @@ export interface ChatSession {
   updatedAt: number;
 }
 
+export interface ImageHistoryItem {
+  id: string;
+  url: string;
+  prompt: string;
+  createdAt: number;
+}
+
 export interface AppSettings {
   userName: string;
-  partnerName: string; // The user's name
-  systemPrompt: string; // Core personality
-  customMemories: string; // Specific facts/answers
+  partnerName: string;
+  systemPrompt: string;
+  customMemories: string;
   themeId: 'romantic' | 'ocean' | 'nature' | 'sunset' | 'midnight';
   fontFamily: 'Quicksand' | 'Inter' | 'Playfair Display' | 'Fira Code';
+  newsRefreshInterval: number; // in minutes
 }
 
 export interface NewsArticle {
@@ -32,7 +40,11 @@ export interface NewsArticle {
   publishedAt: string;
 }
 
-export enum ModelProvider {
-  OPENROUTER = 'OPENROUTER',
-  GEMINI = 'GEMINI'
+export type PageView = 'chat' | 'gallery' | 'news';
+
+export type UserIntention = 'chat' | 'generate_image' | 'fetch_news';
+
+export interface IntentionResponse {
+  type: UserIntention;
+  query: string; // Refined prompt for the specific action
 }
