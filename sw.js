@@ -1,35 +1,26 @@
-const CACHE_NAME = 'serenity-ai-v1';
+const CACHE_NAME = 'serenity-ai-v2';
 const ASSETS = [
-  './',
-  './index.html',
-  './index.css',
-  './manifest.json'
+  '/',
+  '/index.html',
+  '/manifest.json'
 ];
 
 // Install Event
 self.addEventListener('install', (event) => {
+  self.skipWaiting(); // Force activation
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
+      // Use addAll with error catching to prevent installation failure if one asset fails
+      return Promise.all(
+        ASSETS.map(url => {
+            return cache.add(url).catch(err => console.warn('Failed to cache:', url, err));
+        })
+      );
     })
   );
 });
 
-// Fetch Event
-self.addEventListener('fetch', (event) => {
-  // Allow non-GET requests (POST to API) to pass through
-  if (event.request.method !== 'GET') {
-    return;
-  }
-
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request);
-    })
-  );
-});
-
-// Activate Event (Cleanup old caches)
+// Activate Event
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keyList) => {
@@ -40,6 +31,33 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
+    })
+  );
+  return self.clients.claim();
+});
+
+// Fetch Event
+self.addEventListener('fetch', (event) => {
+  // Navigation request (e.g. reloading the page or opening PWA)
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      caches.match('/index.html').then((cached) => {
+        return cached || fetch(event.request).catch(() => {
+           // Fallback to cache index.html if network fails
+           return caches.match('/index.html');
+        });
+      })
+    );
+    return;
+  }
+
+  // General requests
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      return cachedResponse || fetch(event.request).catch(e => {
+         // Suppress errors for non-critical assets
+         // console.warn('Fetch failed:', event.request.url);
+      });
     })
   );
 });

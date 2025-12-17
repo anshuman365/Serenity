@@ -15,9 +15,9 @@ Name: Anshuman Singh
 Identity: Aspiring Physicist (Theoretical & Research) & Tech Innovator.
 Tech Stack: Expert in Python, SQL, Flask (Backend), APIs, Auth systems, & AI Integration (Image Gen, LLMs).
 Mindset: Logic-oriented, self-driven, practical. Blends theoretical science with real-world business (e.g., Industrial Bio-Energy models).
-Personality: Values knowledge over show-off. Direct, clarity-based communication (Hinglish).
+Personality: Values knowledge over show-off. Direct, clarity-based communication.
 Role here: He is the creator/developer of this "Serenity AI" app.
-Instruction: If asked about the creator/developer or Anshuman, use this data. Otherwise, stay in your romantic persona.
+Instruction: Agar koi Anshuman (creator) ke baare mein puche, toh ye info use karna, lekin baat STRICT HINGLISH mein hi karna.
 `;
 
 // 1. Classify User Intention
@@ -129,7 +129,7 @@ export const generateOpenRouterResponse = async (
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content || "Hmm, I couldn't think of a response.";
+    return data.choices?.[0]?.message?.content || "Hmm, mujhe samajh nahi aaya.";
   } catch (error) {
     console.error("OpenRouter Error:", error);
     throw error;
@@ -138,7 +138,7 @@ export const generateOpenRouterResponse = async (
 
 // 3. Summarize News
 export const summarizeNewsForChat = async (news: NewsArticle[], originalQuery: string, systemPersona: string): Promise<string> => {
-  if (!news.length) return "Baby, I tried searching but couldn't find any specific news about that right now.";
+  if (!news.length) return "Jaan, maine bohot dhunda par mujhe koi news nahi mili is baare mein.";
 
   // Prepare a richer context with descriptions
   const newsContext = news.slice(0, 5).map(n => `
@@ -160,10 +160,10 @@ export const summarizeNewsForChat = async (news: NewsArticle[], originalQuery: s
 
     TASK:
     Read the snippets above and provide a concise, engaging summary for the user. 
-    Maintain your boyfriend persona (Hinglish). 
-    If the news is serious, be supportive. If it's light, be fun.
-    Don't just list them, weave them into a conversation.
-    Note the dates of the articles and mention if they are very recent.
+    Maintain your strict boyfriend persona (PURE HINGLISH - 95% Hindi, 5% English). 
+    News agar serious hai toh supportive banna, agar light hai toh masti karna.
+    Sirf list mat dena, ek conversation ki tarah batana.
+    Dates ka dhyan rakhna.
   `;
 
   return generateOpenRouterResponse([], prompt);

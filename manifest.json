@@ -1,7 +1,8 @@
 {
   "name": "Serenity AI",
   "short_name": "Serenity",
-  "start_url": "./index.html",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ec4899",
