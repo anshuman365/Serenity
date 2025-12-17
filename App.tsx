@@ -3,12 +3,13 @@ import {
   Send, Menu, Settings, Plus, MessageSquare, 
   Image as ImageIcon, Newspaper, Sparkles, Bot, 
   ChevronLeft, User, Sun, Moon,
-  RefreshCw, ExternalLink
+  RefreshCw, ExternalLink, Download
 } from 'lucide-react';
 import { generateOpenRouterResponse, classifyUserIntention, summarizeNewsForChat, generateChatTitle } from './services/openRouterService';
 import { generateImageHF } from './services/imageService';
 import { fetchLatestNews, checkAndNotifyNews } from './services/newsService';
 import { fetchBackendKeys } from './services/config';
+import { saveImageToDb, getAllImagesFromDb, requestStoragePermission } from './services/storage';
 import SettingsModal from './components/SettingsModal';
 import { ChatSession, Message, AppSettings, PageView, ImageHistoryItem, NewsArticle } from './types';
 
@@ -95,12 +96,8 @@ const App: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
-  const [imageHistory, setImageHistory] = useState<ImageHistoryItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('serenity_images');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  // Changed: Load image history from IndexedDB, not LocalStorage
+  const [imageHistory, setImageHistory] = useState<ImageHistoryItem[]>([]);
 
   const [cachedNews, setCachedNews] = useState<NewsArticle[]>(() => {
     try {
@@ -126,9 +123,11 @@ const App: React.FC = () => {
     localStorage.setItem('serenity_settings', JSON.stringify(settings));
   }, [settings]);
 
+  // Load images from IndexedDB on mount
   useEffect(() => {
-    localStorage.setItem('serenity_images', JSON.stringify(imageHistory));
-  }, [imageHistory]);
+    getAllImagesFromDb().then(items => setImageHistory(items));
+    requestStoragePermission(); // Request persistent storage
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -226,6 +225,11 @@ const App: React.FC = () => {
            prompt: intention.query,
            createdAt: Date.now()
         };
+        
+        // Save to IndexedDB (Permanent Storage)
+        await saveImageToDb(newImgItem, blob);
+        
+        // Update State
         setImageHistory(prev => [newImgItem, ...prev]);
         botContent = "Ye lo baby, kaisa laga?";
         
@@ -267,13 +271,9 @@ const App: React.FC = () => {
       } : c));
 
       // --- AUTO RENAME LOGIC ---
-      // Reconstruct the message history for this session to send to the title generator
       const chatContext = activeChats.find(c => c.id === activeChatId);
-      // We append userMsg and botMsg because 'activeChats' is from the start of the function 
-      // (before these were added to state)
       const fullHistory = chatContext ? [...chatContext.messages, userMsg, botMsg] : [userMsg, botMsg];
 
-      // Generate title after 1st turn (2 msgs) or 2nd turn (4 msgs) for better context
       if (fullHistory.length === 2 || fullHistory.length === 4) {
         generateChatTitle(fullHistory).then(newTitle => {
            if (newTitle) {
@@ -283,7 +283,6 @@ const App: React.FC = () => {
            }
         });
       }
-      // -------------------------
 
     } catch (error: any) {
       console.error(error);
@@ -310,11 +309,11 @@ const App: React.FC = () => {
   const renderChat = () => {
     const activeChat = chats.find(c => c.id === currentChatId);
     return (
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 flex flex-col h-full overflow-hidden safe-pb">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
            {!activeChat && (
              <div className="h-full flex flex-col items-center justify-center text-center opacity-60 p-4">
-               <div className={`w-24 h-24 bg-gradient-to-tr ${theme.gradient} rounded-full flex items-center justify-center mb-6`}>
+               <div className={`w-24 h-24 bg-gradient-to-tr ${theme.gradient} rounded-full flex items-center justify-center mb-6 shadow-xl`}>
                  <Bot size={48} className="text-white" />
                </div>
                <h3 className="text-2xl font-bold dark:text-gray-200">Hi, {settings.partnerName}</h3>
@@ -322,30 +321,39 @@ const App: React.FC = () => {
              </div>
            )}
            {activeChat?.messages.map(msg => (
-             <div key={msg.id} className={`flex gap-4 max-w-3xl mx-auto ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+             <div key={msg.id} className={`flex gap-3 md:gap-4 max-w-3xl mx-auto ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-600 text-white' : `${theme.msgUser} text-white`}`}>
                  {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
                </div>
                <div className={`flex flex-col gap-2 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                 <div className={`px-5 py-3.5 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-700 text-white rounded-tr-sm' : `${theme.msgBot} border text-gray-700 dark:text-gray-200 rounded-tl-sm`}`}>
+                 <div className={`px-4 py-3 md:px-5 md:py-3.5 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-gray-800 dark:bg-gray-700 text-white rounded-tr-sm' : `${theme.msgBot} border text-gray-700 dark:text-gray-200 rounded-tl-sm`}`}>
                    {msg.content}
                  </div>
                  
                  {/* Generated Image Display */}
                  {msg.image && (
-                   <img src={msg.image} alt="Generated" className="rounded-xl shadow-lg border-4 border-white dark:border-gray-700 max-w-full" />
+                   <div className="relative group">
+                     <img src={msg.image} alt="Generated" className="rounded-xl shadow-lg border-4 border-white dark:border-gray-700 max-w-full" />
+                     <a 
+                       href={msg.image} 
+                       download={`serenity-${Date.now()}.png`}
+                       className="absolute bottom-2 right-2 p-2 bg-white/90 rounded-full shadow-md text-gray-800 opacity-0 group-hover:opacity-100 transition-opacity"
+                     >
+                       <Download size={16}/>
+                     </a>
+                   </div>
                  )}
 
-                 {/* News Cards Display inside Chat */}
+                 {/* News Cards */}
                  {msg.newsArticles && msg.newsArticles.length > 0 && (
-                   <div className="w-full flex gap-3 overflow-x-auto py-2 custom-scrollbar">
+                   <div className="w-full flex gap-3 overflow-x-auto py-2 custom-scrollbar snap-x">
                      {msg.newsArticles.map((article, idx) => (
                        <a 
                          key={idx} 
                          href={article.url} 
                          target="_blank" 
                          rel="noreferrer"
-                         className="flex-shrink-0 w-60 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden hover:shadow-md transition-all group"
+                         className="flex-shrink-0 w-60 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden hover:shadow-md transition-all group snap-start"
                        >
                          <div className="h-32 overflow-hidden">
                            <img src={article.image} alt={article.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
@@ -377,16 +385,16 @@ const App: React.FC = () => {
            )}
            <div ref={messagesEndRef} className="h-4"/>
         </div>
-        <div className="p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-800">
+        <div className="p-3 md:p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-800 pb-safe">
           <div className="max-w-3xl mx-auto flex items-center gap-2">
             <input 
               value={input} 
               onChange={e=>setInput(e.target.value)} 
               onKeyDown={e=>e.key==='Enter' && handleSendMessage()}
               placeholder={`Message ${settings.userName}...`}
-              className="flex-1 bg-white dark:bg-gray-800 border-0 ring-1 ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-pink-400 rounded-2xl px-5 py-4 shadow-sm transition-all outline-none dark:text-white"
+              className="flex-1 bg-white dark:bg-gray-800 border-0 ring-1 ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-pink-400 rounded-2xl px-5 py-3 md:py-4 shadow-sm transition-all outline-none dark:text-white"
             />
-            <button onClick={handleSendMessage} disabled={!input.trim() || isTyping} className={`p-4 rounded-xl shadow-lg transition-all transform hover:scale-105 active:scale-95 ${!input.trim() ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' : `${theme.buttonGradient} text-white`}`}>
+            <button onClick={handleSendMessage} disabled={!input.trim() || isTyping} className={`p-3 md:p-4 rounded-xl shadow-lg transition-all transform hover:scale-105 active:scale-95 ${!input.trim() ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' : `${theme.buttonGradient} text-white`}`}>
               <Send size={20}/>
             </button>
           </div>
@@ -396,7 +404,7 @@ const App: React.FC = () => {
   };
 
   const renderGallery = () => (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900 safe-pb">
       <h2 className="text-2xl font-bold mb-6 flex items-center gap-2 dark:text-white"><ImageIcon className="text-pink-500"/> Image Memories</h2>
       {imageHistory.length === 0 ? (
         <div className="text-center py-20 text-gray-400">No images generated yet. Ask me to "draw something"!</div>
@@ -407,7 +415,7 @@ const App: React.FC = () => {
               <div className="relative aspect-square">
                 <img src={img.url} alt={img.prompt} className="w-full h-full object-cover"/>
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <a href={img.url} download className="p-2 bg-white rounded-full text-gray-900"><Sparkles size={18}/></a>
+                  <a href={img.url} download={`serenity-${img.id}.png`} className="p-3 bg-white rounded-full text-gray-900 hover:scale-110 transition-transform"><Download size={20}/></a>
                 </div>
               </div>
               <div className="p-3">
@@ -422,7 +430,7 @@ const App: React.FC = () => {
   );
 
   const renderNews = () => (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-gray-900 safe-pb">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold flex items-center gap-2 dark:text-white"><Newspaper className="text-purple-500"/> Latest Updates</h2>
         <button 
@@ -456,14 +464,14 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 transition-colors duration-300" style={{fontFamily: settings.fontFamily}}>
-      {/* Sidebar */}
+      {/* Sidebar - Hidden on mobile by default */}
       <aside className={`fixed md:static inset-y-0 z-30 w-72 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-        <div className="flex flex-col h-full p-4">
-          <div className="flex items-center justify-between mb-8 px-2">
+        <div className="flex flex-col h-full p-4 safe-pb">
+          <div className="flex items-center justify-between mb-8 px-2 mt-2">
             <h1 className={`text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r ${theme.gradient} flex items-center gap-2`}>
               <Sparkles className={theme.primary}/> Serenity
             </h1>
-            <button onClick={()=>setIsSidebarOpen(false)} className="md:hidden text-gray-400"><ChevronLeft/></button>
+            <button onClick={()=>setIsSidebarOpen(false)} className="md:hidden text-gray-400 p-2"><ChevronLeft/></button>
           </div>
           <nav className="space-y-2 mb-6">
             <button onClick={() => { setActivePage('chat'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activePage === 'chat' ? `${theme.bgSoft} ${theme.primary} font-medium` : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
@@ -514,7 +522,9 @@ const App: React.FC = () => {
       </div>
 
       <SettingsModal isOpen={showSettings} onClose={()=>setShowSettings(false)} settings={settings} onSave={setSettings}/>
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={()=>setIsSidebarOpen(false)}/>}
+      
+      {/* Mobile overlay for sidebar */}
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden backdrop-blur-sm" onClick={()=>setIsSidebarOpen(false)}/>}
     </div>
   );
 };
